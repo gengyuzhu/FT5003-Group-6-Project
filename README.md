@@ -1,4 +1,4 @@
-﻿# NFT Marketplace
+# NFT Marketplace
 
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.28-363636?logo=solidity)](https://soliditylang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://react.dev/)
@@ -13,34 +13,34 @@ A full-stack decentralized NFT marketplace built on Ethereum, supporting minting
 ## Features
 
 ### Smart Contract
-- **Mint NFTs** 鈥?Create ERC-721 tokens with metadata stored on IPFS via Pinata
-- **Fixed-Price Listings** 鈥?List NFTs at a set price and allow instant purchases
-- **English Auctions** 鈥?Time-bound auctions with real-time countdown timers and competitive bidding
-- **Royalty Enforcement** 鈥?ERC-2981 royalties applied automatically on every secondary sale
-- **Platform Fee** 鈥?Configurable marketplace fee (default 2.5%) collected on each transaction
-- **Secure Payments** 鈥?Pull-over-push pattern for auction refunds, guarded by ReentrancyGuard
+- **Mint NFTs** - Create ERC-721 tokens with metadata stored on IPFS via Pinata
+- **Fixed-Price Listings** - List NFTs at a set price and allow instant purchases
+- **English Auctions** - Time-bound auctions with real-time countdown timers and competitive bidding
+- **Royalty Enforcement** - ERC-2981 royalties applied automatically on every secondary sale
+- **Platform Fee** - Configurable marketplace fee (default 2.5%) collected on each transaction
+- **Secure Payments** - Pull-over-push pattern for auction refunds, guarded by ReentrancyGuard
 
 ### Frontend
-- **Collection Pages** 鈥?Dedicated pages for each NFT collection with banner, stats (items, owners, floor price, volume), and NFT grid
-- **Enhanced Profile** 鈥?Gradient banner, avatar, ETH balance display, four tabs (Collected, Created, Favorited, Activity), computed volume from on-chain activity
-- **Make Offer System** 鈥?WETH-based offer modal with amount input and expiration dropdown on NFT detail pages
-- **Web3 Transaction States** 鈥?4-stage transaction modal (wallet approval 鈫?blockchain pending 鈫?success / error) with progress bar, mock tx hash, and retry on failure
-- **NFT Traits** 鈥?Dynamic trait input on the Create page (Type + Value) that appears in the preview card and in the NFT detail attributes section
-- **IPFS Storage Notes** 鈥?Helper text on the Create page and IPFS metadata link on NFT detail pages
-- **Network Indicator** 鈥?Pulsing dot badge showing the connected network (Sepolia, Hardhat Local, or Wrong Network) next to the wallet button
-- **Custom Wallet Menu** 鈥?User dropdown with address display, network switching (Hardhat 鈫?Sepolia), and disconnect button
-- **Real Images** 鈥?Copyright-free images via picsum.photos with gradient fallbacks on load failure
-- **Market Overview** 鈥?Real-time market analytics dashboard with Fear & Greed gauge, animated stat cards (market cap, volume, sales, avg floor), collection rankings, top sales carousel, market pulse bars, and key insights 鈥?values fluctuate via simulated live data every 4 seconds
-- **Breadcrumb Navigation** 鈥?Contextual breadcrumbs on all sub-pages (Explore, Create, NFTDetail, Profile, Activity, Collection, Market)
-- **Wallet Integration** 鈥?Connect via MetaMask, WalletConnect, and other wallets through RainbowKit
-- **Modern UI** 鈥?Dark-themed, responsive interface with smooth Framer Motion animations and glassmorphism effects
-- **Premium Royalty Slider** 鈥?Custom-styled range input with gradient track, floating tooltip bubble, tick marks, and glow effects
-- **Trending Collections** 鈥?Gold/Silver/Bronze rank badges, hover glow effects, animated row entries, and "View All" button
-- **Interactive NFT Actions** 鈥?Share (copy link), external link (IPFS), and favorite buttons with toast feedback
-- **Navbar Search** 鈥?Global search bar that navigates to Explore with pre-filled query
-- **Crash Prevention** 鈥?ErrorBoundary wrapper, 404 page, and null guards for NFT/Collection not-found states
-- **Scroll-to-Top** 鈥?Automatic scroll reset on route navigation
-- **Centralized Mock Data** 鈥?5 collections, 22 NFTs with attributes, offers, activity history, and rich market stats (sparklines, 24h/7d/30d changes, market cap, volume) for realistic demo presentation
+- **Collection Pages** - Dedicated pages for each NFT collection with banner, stats (items, owners, floor price, volume), and NFT grid
+- **Enhanced Profile** - Gradient banner, avatar, ETH balance display, four tabs (Collected, Created, Favorited, Activity), computed volume from on-chain activity
+- **Make Offer System** - WETH-based offer modal with amount input and expiration dropdown on NFT detail pages
+- **Web3 Transaction States** - 4-stage transaction modal (wallet approval -> blockchain pending -> success / error) with progress bar, mock tx hash, and retry on failure
+- **NFT Traits** - Dynamic trait input on the Create page (Type + Value) that appears in the preview card and in the NFT detail attributes section
+- **IPFS Storage Notes** - Helper text on the Create page and IPFS metadata link on NFT detail pages
+- **Network Indicator** - Pulsing dot badge showing the connected network (Sepolia, Hardhat Local, or Wrong Network) next to the wallet button
+- **Custom Wallet Menu** - User dropdown with address display, network switching (Hardhat -> Sepolia), and disconnect button
+- **Real Images** - Copyright-free images via picsum.photos with gradient fallbacks on load failure
+- **Market Overview** - Real-time market analytics dashboard with Fear & Greed gauge, animated stat cards (market cap, volume, sales, avg floor), collection rankings, top sales carousel, market pulse bars, and key insights - values fluctuate via simulated live data every 4 seconds
+- **Breadcrumb Navigation** - Contextual breadcrumbs on all sub-pages (Explore, Create, NFTDetail, Profile, Activity, Collection, Market)
+- **Wallet Integration** - Connect via MetaMask, WalletConnect, and other wallets through RainbowKit
+- **Modern UI** - Dark-themed, responsive interface with smooth Framer Motion animations and glassmorphism effects
+- **Premium Royalty Slider** - Custom-styled range input with gradient track, floating tooltip bubble, tick marks, and glow effects
+- **Trending Collections** - Gold/Silver/Bronze rank badges, hover glow effects, animated row entries, and "View All" button
+- **Interactive NFT Actions** - Share (copy link), external link (IPFS), and favorite buttons with toast feedback
+- **Navbar Search** - Global search bar that navigates to Explore with pre-filled query
+- **Crash Prevention** - ErrorBoundary wrapper, 404 page, and null guards for NFT/Collection not-found states
+- **Scroll-to-Top** - Automatic scroll reset on route navigation
+- **Centralized Mock Data** - 5 collections, 22 NFTs with attributes, offers, activity history, and rich market stats (sparklines, 24h/7d/30d changes, market cap, volume) for realistic demo presentation
 
 ---
 
@@ -139,17 +139,17 @@ REPORT_GAS=true npx hardhat test
 
 1. Create a `.env` file in the `contracts/` directory:
 
-    ```env
-    SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
-    DEPLOYER_PRIVATE_KEY=your_private_key
-    ```
+   ```env
+   SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
+   DEPLOYER_PRIVATE_KEY=your_private_key
+   ```
 
 2. Deploy to Sepolia:
 
-    ```bash
-    cd contracts
-    npx hardhat run scripts/deploy.js --network sepolia
-    ```
+   ```bash
+   cd contracts
+   npx hardhat run scripts/deploy.js --network sepolia
+   ```
 
 3. Update the contract addresses in `frontend/src/config/` with the deployed addresses.
 
@@ -157,28 +157,28 @@ REPORT_GAS=true npx hardhat test
 
 ## Project Structure
 
-```
-鈹溾攢鈹€ contracts/                  # Hardhat project
-鈹?  鈹溾攢鈹€ contracts/
-鈹?  鈹?  鈹溾攢鈹€ NFTCollection.sol   # ERC-721 token with ERC-2981 royalties
-鈹?  鈹?  鈹斺攢鈹€ NFTMarketplace.sol  # Marketplace: listings + auctions
-鈹?  鈹溾攢鈹€ test/                   # Smart contract tests (28 tests)
-鈹?  鈹溾攢鈹€ scripts/
-鈹?  鈹?  鈹斺攢鈹€ deploy.js           # Deployment script
-鈹?  鈹斺攢鈹€ hardhat.config.js
-鈹溾攢鈹€ frontend/                   # React + Vite application
-鈹?  鈹溾攢鈹€ src/
-鈹?  鈹?  鈹溾攢鈹€ pages/              # Home, Explore, Create, NFTDetail, Profile, Activity, Collection, Market, NotFound (404)
-鈹?  鈹?  鈹溾攢鈹€ components/
-鈹?  鈹?  鈹?  鈹溾攢鈹€ layout/         # Navbar (with search + user menu), Footer (multi-column), Layout, ScrollToTop
-鈹?  鈹?  鈹?  鈹斺攢鈹€ ui/             # Breadcrumb, NetworkBadge, TransactionModal, ErrorBoundary, LoadingSpinner, Toast
-鈹?  鈹?  鈹溾攢鈹€ data/               # Centralized mock data (mockData.js)
-鈹?  鈹?  鈹溾攢鈹€ hooks/              # Custom React hooks for contract interactions
-鈹?  鈹?  鈹溾攢鈹€ config/             # wagmi config, contract ABIs and addresses
-鈹?  鈹?  鈹斺攢鈹€ utils/              # IPFS helpers, formatting utilities
-鈹?  鈹斺攢鈹€ package.json
-|- architecture.md             # Architecture and design documentation
-\- business-logic.md           # Business logic and implementation notes
+```text
+|-- contracts/                  # Hardhat project
+|   |-- contracts/
+|   |   |-- NFTCollection.sol   # ERC-721 token with ERC-2981 royalties
+|   |   `-- NFTMarketplace.sol  # Marketplace: listings + auctions
+|   |-- test/                   # Smart contract tests (28 tests)
+|   |-- scripts/
+|   |   `-- deploy.js           # Deployment script
+|   `-- hardhat.config.js
+|-- frontend/                   # React + Vite application
+|   |-- src/
+|   |   |-- pages/              # Home, Explore, Create, NFTDetail, Profile, Activity, Collection, Market, NotFound (404)
+|   |   |-- components/
+|   |   |   |-- layout/         # Navbar (with search + user menu), Footer (multi-column), Layout, ScrollToTop
+|   |   |   `-- ui/             # Breadcrumb, NetworkBadge, TransactionModal, ErrorBoundary, LoadingSpinner, Toast
+|   |   |-- data/               # Centralized mock data (mockData.js)
+|   |   |-- hooks/              # Custom React hooks for contract interactions
+|   |   |-- config/             # wagmi config, contract ABIs and addresses
+|   |   `-- utils/              # IPFS helpers, formatting utilities
+|   `-- package.json
+|-- architecture.md             # Architecture and design documentation
+`-- business-logic.md           # Business logic and implementation notes
 ```
 
 ---
@@ -187,9 +187,9 @@ REPORT_GAS=true npx hardhat test
 
 The system is composed of two smart contracts and a React frontend:
 
-- **NFTCollection** 鈥?An ERC-721 contract extended with ERC-2981 royalty information. Handles minting and stores a creator-defined royalty percentage that is enforced on all secondary sales.
-- **NFTMarketplace** 鈥?Manages fixed-price listings and English auctions. Collects a configurable platform fee, distributes royalties to creators, and uses a pull-over-push withdrawal pattern to securely handle auction refunds.
-- **Frontend** 鈥?A single-page React application that communicates with the contracts via wagmi and viem. Wallet connectivity is provided by RainbowKit, and NFT metadata and images are stored on IPFS through Pinata.
+- **NFTCollection** - An ERC-721 contract extended with ERC-2981 royalty information. Handles minting and stores a creator-defined royalty percentage that is enforced on all secondary sales.
+- **NFTMarketplace** - Manages fixed-price listings and English auctions. Collects a configurable platform fee, distributes royalties to creators, and uses a pull-over-push withdrawal pattern to securely handle auction refunds.
+- **Frontend** - A single-page React application that communicates with the contracts via wagmi and viem. Wallet connectivity is provided by RainbowKit, and NFT metadata and images are stored on IPFS through Pinata.
 
 For detailed architecture diagrams and business logic documentation, see [architecture.md](architecture.md) and [business-logic.md](business-logic.md).
 
