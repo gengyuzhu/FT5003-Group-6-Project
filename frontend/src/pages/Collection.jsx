@@ -65,6 +65,7 @@ export default function Collection() {
       <Breadcrumb
         items={[
           { label: "Home", to: "/" },
+          { label: "Explore", to: "/explore" },
           { label: collection.name },
         ]}
       />

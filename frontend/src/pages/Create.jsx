@@ -113,6 +113,10 @@ export default function Create() {
   const onFileInput = (e) => handleFile(e.target.files?.[0]);
 
   const handleMint = async () => {
+    if (!imagePreview) {
+      toast.error("Please upload an image");
+      return;
+    }
     if (!form.name.trim()) {
       toast.error("Please enter an NFT name");
       return;
@@ -144,6 +148,11 @@ export default function Create() {
     setMintComplete(false);
     setMintStep(0);
     setMintProgress(0);
+    // Reset form
+    setForm({ name: "", description: "", royalty: 5, category: "Art" });
+    setTraits([]);
+    setImagePreview(null);
+    setFileSize(null);
     toast.success("NFT minted successfully!");
   };
 

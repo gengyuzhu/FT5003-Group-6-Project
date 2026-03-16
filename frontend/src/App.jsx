@@ -17,6 +17,7 @@ const NFTDetail = lazy(() => import("@/pages/NFTDetail"));
 const Profile = lazy(() => import("@/pages/Profile"));
 const Activity = lazy(() => import("@/pages/Activity"));
 const Collection = lazy(() => import("@/pages/Collection"));
+const Market = lazy(() => import("@/pages/Market"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
 function App() {
@@ -41,6 +42,7 @@ function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/activity" element={<Activity />} />
               <Route path="/collection/:slug" element={<Collection />} />
+              <Route path="/market" element={<Market />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

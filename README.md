@@ -30,7 +30,8 @@ A full-stack decentralized NFT marketplace built on Ethereum, supporting minting
 - **Network Indicator** — Pulsing dot badge showing the connected network (Sepolia, Hardhat Local, or Wrong Network) next to the wallet button
 - **Custom Wallet Menu** — User dropdown with address display, network switching (Hardhat ↔ Sepolia), and disconnect button
 - **Real Images** — Copyright-free images via picsum.photos with gradient fallbacks on load failure
-- **Breadcrumb Navigation** — Contextual breadcrumbs on all sub-pages (Explore, Create, NFTDetail, Profile, Activity, Collection)
+- **Market Overview** — Real-time market analytics dashboard with Fear & Greed gauge, animated stat cards (market cap, volume, sales, avg floor), collection rankings, top sales carousel, market pulse bars, and key insights — values fluctuate via simulated live data every 4 seconds
+- **Breadcrumb Navigation** — Contextual breadcrumbs on all sub-pages (Explore, Create, NFTDetail, Profile, Activity, Collection, Market)
 - **Wallet Integration** — Connect via MetaMask, WalletConnect, and other wallets through RainbowKit
 - **Modern UI** — Dark-themed, responsive interface with smooth Framer Motion animations and glassmorphism effects
 - **Premium Royalty Slider** — Custom-styled range input with gradient track, floating tooltip bubble, tick marks, and glow effects
@@ -39,7 +40,7 @@ A full-stack decentralized NFT marketplace built on Ethereum, supporting minting
 - **Navbar Search** — Global search bar that navigates to Explore with pre-filled query
 - **Crash Prevention** — ErrorBoundary wrapper, 404 page, and null guards for NFT/Collection not-found states
 - **Scroll-to-Top** — Automatic scroll reset on route navigation
-- **Centralized Mock Data** — 5 collections, 22 NFTs with attributes, offers, and activity history for realistic demo presentation
+- **Centralized Mock Data** — 5 collections, 22 NFTs with attributes, offers, activity history, and rich market stats (sparklines, 24h/7d/30d changes, market cap, volume) for realistic demo presentation
 
 ---
 
@@ -167,7 +168,7 @@ REPORT_GAS=true npx hardhat test
 │   └── hardhat.config.js
 ├── frontend/                   # React + Vite application
 │   ├── src/
-│   │   ├── pages/              # Home, Explore, Create, NFTDetail, Profile, Activity, Collection, NotFound (404)
+│   │   ├── pages/              # Home, Explore, Create, NFTDetail, Profile, Activity, Collection, Market, NotFound (404)
 │   │   ├── components/
 │   │   │   ├── layout/         # Navbar (with search + user menu), Footer (multi-column), Layout, ScrollToTop
 │   │   │   └── ui/             # Breadcrumb, NetworkBadge, TransactionModal, ErrorBoundary, LoadingSpinner, Toast

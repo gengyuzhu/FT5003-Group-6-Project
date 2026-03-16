@@ -12,6 +12,7 @@ import {
   FiCompass,
   FiPlusCircle,
   FiActivity,
+  FiBarChart2,
   FiUser,
   FiSearch,
   FiLogOut,
@@ -23,6 +24,7 @@ const navLinks = [
   { to: "/explore", label: "Explore", icon: FiCompass },
   { to: "/create", label: "Create", icon: FiPlusCircle },
   { to: "/activity", label: "Activity", icon: FiActivity },
+  { to: "/market", label: "Market", icon: FiBarChart2 },
 ];
 
 const SUPPORTED_CHAINS = [hardhat, sepolia];

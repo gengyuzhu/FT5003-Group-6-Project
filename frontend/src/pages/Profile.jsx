@@ -45,6 +45,8 @@ export default function Profile() {
   const [activeTab, setActiveTab] = useState("collected");
   const [copied, setCopied] = useState(false);
 
+  const [imgErrors, setImgErrors] = useState({});
+
   // List for sale modal state
   const [listModalOpen, setListModalOpen] = useState(false);
   const [listNFT, setListNFT] = useState(null);
@@ -66,9 +68,9 @@ export default function Profile() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const ownedNFTs = MOCK_USER_PROFILE.owned.map((id) => getNFTById(id));
-  const createdNFTs = MOCK_USER_PROFILE.created.map((id) => getNFTById(id));
-  const favoritedNFTs = MOCK_USER_PROFILE.favorited.map((id) => getNFTById(id));
+  const ownedNFTs = MOCK_USER_PROFILE.owned.map((id) => getNFTById(id)).filter(Boolean);
+  const createdNFTs = MOCK_USER_PROFILE.created.map((id) => getNFTById(id)).filter(Boolean);
+  const favoritedNFTs = MOCK_USER_PROFILE.favorited.map((id) => getNFTById(id)).filter(Boolean);
 
   const handleListForSale = (nft) => {
     setListNFT(nft);
@@ -229,19 +231,18 @@ export default function Profile() {
               >
                 <Link to={`/nft/${nft.id}`}>
                   <div className="relative h-48 overflow-hidden">
-                    <img
-                      src={nft.image}
-                      alt={nft.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      onError={(e) => {
-                        e.target.style.display = "none";
-                        e.target.parentElement.classList.add(
-                          "bg-gradient-to-br",
-                          nft.gradient.split(" ")[0],
-                          nft.gradient.split(" ")[1]
-                        );
-                      }}
-                    />
+                    {imgErrors[nft.id] ? (
+                      <div className={`w-full h-full bg-gradient-to-br ${nft.gradient} flex items-center justify-center`}>
+                        <span className="text-white/30 text-5xl font-bold">{nft.name.charAt(0)}</span>
+                      </div>
+                    ) : (
+                      <img
+                        src={nft.image}
+                        alt={nft.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        onError={() => setImgErrors((prev) => ({ ...prev, [nft.id]: true }))}
+                      />
+                    )}
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300" />
                   </div>
                 </Link>
@@ -286,19 +287,18 @@ export default function Profile() {
               >
                 <Link to={`/nft/${nft.id}`}>
                   <div className="relative h-48 overflow-hidden">
-                    <img
-                      src={nft.image}
-                      alt={nft.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      onError={(e) => {
-                        e.target.style.display = "none";
-                        e.target.parentElement.classList.add(
-                          "bg-gradient-to-br",
-                          nft.gradient.split(" ")[0],
-                          nft.gradient.split(" ")[1]
-                        );
-                      }}
-                    />
+                    {imgErrors[nft.id] ? (
+                      <div className={`w-full h-full bg-gradient-to-br ${nft.gradient} flex items-center justify-center`}>
+                        <span className="text-white/30 text-5xl font-bold">{nft.name.charAt(0)}</span>
+                      </div>
+                    ) : (
+                      <img
+                        src={nft.image}
+                        alt={nft.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        onError={() => setImgErrors((prev) => ({ ...prev, [nft.id]: true }))}
+                      />
+                    )}
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300" />
                   </div>
                 </Link>
@@ -339,19 +339,18 @@ export default function Profile() {
               >
                 <Link to={`/nft/${nft.id}`}>
                   <div className="relative h-48 overflow-hidden">
-                    <img
-                      src={nft.image}
-                      alt={nft.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      onError={(e) => {
-                        e.target.style.display = "none";
-                        e.target.parentElement.classList.add(
-                          "bg-gradient-to-br",
-                          nft.gradient.split(" ")[0],
-                          nft.gradient.split(" ")[1]
-                        );
-                      }}
-                    />
+                    {imgErrors[nft.id] ? (
+                      <div className={`w-full h-full bg-gradient-to-br ${nft.gradient} flex items-center justify-center`}>
+                        <span className="text-white/30 text-5xl font-bold">{nft.name.charAt(0)}</span>
+                      </div>
+                    ) : (
+                      <img
+                        src={nft.image}
+                        alt={nft.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        onError={() => setImgErrors((prev) => ({ ...prev, [nft.id]: true }))}
+                      />
+                    )}
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300" />
                   </div>
                 </Link>

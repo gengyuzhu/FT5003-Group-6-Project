@@ -317,6 +317,39 @@ All pages consume data from `src/data/mockData.js` instead of inline constants:
 - **Helper functions**: `getNFTById()`, `getCollectionBySlug()`, `getNFTsByCollection()`, `getFeaturedNFTs()`, `getTrendingCollections()`
 - **User profile**: Mock wallet address, ETH balance, owned/created/favorited NFT lists
 
+### 7.7 Market Overview Page
+
+A dedicated analytics dashboard at `/market` providing at-a-glance market health, inspired by nftvaluations.com:
+
+**Fear & Greed Gauge**
+- SVG half-circle arc gauge with gradient (red → orange → yellow → green)
+- Score computed from: 24h volume momentum, average price changes across collections, and sales activity
+- Labels: Extreme Fear (0-20), Fear (21-40), Neutral (41-60), Greed (61-80), Extreme Greed (81-100)
+
+**Live Stat Cards** (4 cards, animated)
+- Total Market Cap, 24h Volume, 24h Sales, Avg Floor Price
+- Values derived from COLLECTIONS data and fluctuate every 4 seconds via `useLiveMarketData` hook
+- Each card shows a computed trend badge (green/red %) comparing live value to baseline
+- Count-up animation on initial render via `useAnimatedValue` hook (easeOutCubic)
+
+**Collection Rankings**
+- Sortable table with 3 tabs: Trend Score, Volume, Floor Price
+- Trend Score: weighted combination of 24h change (40%), volume (30%), sales (30%)
+- Each row shows: rank, collection image, floor price, 24h %, 7-day sparkline, and sort metric
+- Animated row transitions via `AnimatePresence`
+
+**Top Sales Carousel**
+- Paginated grid of recent sales from MOCK_GLOBAL_ACTIVITY, sorted by price descending
+- Each card links to the NFT detail page
+
+**Market Pulse**
+- Horizontal bar chart showing distribution of activity types (Mints, Sales, Listings, Bids, Transfers)
+- Animated bar widths using Framer Motion
+
+**Key Insights**
+- Most Active Collection (by sales count), Highest Floor, Biggest 24h Decline
+- All derived from live COLLECTIONS data
+
 ---
 
 ## 8. UI/UX Polish (Round 3)

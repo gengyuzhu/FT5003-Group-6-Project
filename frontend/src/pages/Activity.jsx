@@ -75,6 +75,7 @@ function SkeletonRow() {
 export default function Activity() {
   const [filter, setFilter] = useState("all");
   const [loading] = useState(false);
+  const [imgErrors, setImgErrors] = useState({});
 
   const filtered =
     filter === "all"
@@ -203,20 +204,18 @@ export default function Activity() {
 
                       {/* nft */}
                       <div className="col-span-3 flex items-center gap-3">
-                        {evt.nftImage ? (
+                        {evt.nftImage && !imgErrors[evt.id] ? (
                           <img
                             src={evt.nftImage}
                             alt={evt.nft}
                             className="hidden md:block w-8 h-8 rounded-lg object-cover flex-shrink-0"
-                            onError={(e) => {
-                              e.target.style.display = "none";
-                              e.target.nextSibling && (e.target.nextSibling.style.display = "block");
-                            }}
+                            onError={() => setImgErrors((prev) => ({ ...prev, [evt.id]: true }))}
                           />
-                        ) : null}
-                        <div
-                          className={`hidden ${evt.nftImage ? "md:hidden" : "md:block"} w-8 h-8 rounded-lg bg-gradient-to-br ${evt.gradient} flex-shrink-0`}
-                        />
+                        ) : (
+                          <div
+                            className={`hidden md:block w-8 h-8 rounded-lg bg-gradient-to-br ${evt.gradient} flex-shrink-0`}
+                          />
+                        )}
                         <Link
                           to={`/nft/${evt.nftId}`}
                           className="text-white font-medium truncate text-sm hover:text-primary-400 transition-colors"

@@ -8,7 +8,6 @@ import {
   FiShoppingCart,
   FiClock,
   FiX,
-  FiChevronUp,
 } from "react-icons/fi";
 import { HiOutlineSparkles } from "react-icons/hi2";
 import { ALL_NFTS } from "@/data/mockData";
@@ -20,7 +19,7 @@ const MOCK_LISTINGS = ALL_NFTS.map((nft) => ({
   endTime: nft.endTime ? Math.floor(new Date(nft.endTime).getTime() / 1000) : null,
 }));
 
-const CATEGORIES = ["Art", "Photography", "Music", "Collectible", "Gaming"];
+const CATEGORIES = ["Art", "Photography", "Music", "Video", "Collectible", "Gaming", "Utility", "Other"];
 
 const IMAGE_HEIGHTS = [
   "h-44", "h-56", "h-64", "h-48", "h-60", "h-52",
@@ -458,9 +457,10 @@ export default function Explore() {
       list = list.filter((n) => categories.includes(n.category));
     }
 
-    // sort
-    if (sort === "low") list.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
-    if (sort === "high") list.sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
+    // sort (use currentBid for auctions, price for fixed — consistent with filter)
+    const getPrice = (n) => parseFloat(n.type === "auction" ? n.currentBid : n.price);
+    if (sort === "low") list.sort((a, b) => getPrice(a) - getPrice(b));
+    if (sort === "high") list.sort((a, b) => getPrice(b) - getPrice(a));
 
     return list;
   }, [search, types, minPrice, maxPrice, categories, sort]);

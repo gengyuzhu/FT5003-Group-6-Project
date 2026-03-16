@@ -453,7 +453,7 @@ function TrendingCollections() {
 
                     {/* Collection */}
                     <td className="px-4 py-4">
-                      <Link to={`/collection/${collection.slug}`} className="flex items-center gap-3">
+                      <div className="flex items-center gap-3">
                         {!hasImgError ? (
                           <img
                             src={collection.image}
@@ -469,7 +469,7 @@ function TrendingCollections() {
                             {collection.name}
                           </span>
                         </div>
-                      </Link>
+                      </div>
                     </td>
 
                     {/* Floor Price */}

@@ -159,7 +159,8 @@ App
 │   ├── NFTDetail (image, buy/bid, Make Offer modal, Offers tab, IPFS link, TransactionModal)
 │   ├── Collection (banner, stats, NFT grid for a specific collection)
 │   ├── Profile (banner + avatar, 4 tabs: Collected/Created/Favorited/Activity, List for Sale modal)
-│   └── Activity (global transaction feed with event icons)
+│   ├── Activity (global transaction feed with event icons)
+│   └── Market (Fear & Greed gauge, live stat cards, collection rankings, top sales, market pulse)
 ├── Data
 │   └── mockData.js (centralized: 5 collections, 22 NFTs, user profile, helpers)
 ├── Components

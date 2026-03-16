@@ -9,15 +9,15 @@ const footerLinks = {
     { label: "Activity", to: "/activity" },
   ],
   resources: [
-    { label: "Documentation", href: "#" },
-    { label: "Smart Contracts", href: "#" },
-    { label: "Token Standards", href: "#" },
-    { label: "IPFS Storage", href: "#" },
+    { label: "Documentation", href: "https://docs.openzeppelin.com/contracts/5.x/erc721" },
+    { label: "Smart Contracts", href: "https://ethereum.org/en/developers/docs/smart-contracts/" },
+    { label: "Token Standards", href: "https://ethereum.org/en/developers/docs/standards/tokens/erc-721/" },
+    { label: "IPFS Storage", href: "https://docs.ipfs.tech/concepts/what-is-ipfs/" },
   ],
   community: [
     { label: "Discord", href: "#", icon: FiMessageCircle },
     { label: "Twitter", href: "https://twitter.com", icon: FiTwitter },
-    { label: "GitHub", href: "https://github.com", icon: FiGithub },
+    { label: "GitHub", href: "https://github.com/gengyuzhu/FT5003-Group-6-Project", icon: FiGithub },
     { label: "Website", href: "https://www.comp.nus.edu.sg", icon: FiGlobe },
   ],
 };
