@@ -13,14 +13,14 @@ The NFT Marketplace is a decentralized application (dApp) that enables users to 
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │                        Frontend (React + Vite)                │
-│  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │
-│  │ RainbowKit│ │  wagmi   │  │  Framer  │  │ TailwindCSS  │  │
-│  │ (Wallet) │  │ (Hooks)  │  │ Motion   │  │  (Styling)   │  │
-│  └────┬─────┘  └────┬─────┘  └──────────┘  └──────────────┘  │
-│       │              │                                         │
-│       └──────┬───────┘                                         │
-│              │                                                 │
-└──────────────┼─────────────────────────────────────────────────┘
+│  ┌─────────┐   ┌──────────┐  ┌──────────┐  ┌──────────────┐   │
+│  │ RainbowKit│ │  wagmi   │  │  Framer  │  │ TailwindCSS  │   │
+│  │ (Wallet) │  │ (Hooks)  │  │ Motion   │  │  (Styling)   │   │
+│  └────┬─────┘  └────┬─────┘  └──────────┘  └──────────────┘   │
+│       │              │                                        │
+│       └──────┬───────┘                                        │
+│              │                                                │
+└──────────────┼────────────────────────────────────────────────┘
                │ JSON-RPC (via viem)
                ▼
 ┌──────────────────────────────┐     ┌──────────────────────────┐
@@ -44,25 +44,25 @@ The NFT Marketplace is a decentralized application (dApp) that enables users to 
 
 ```
 ┌─────────────────────────────────────────────┐
-│              NFTCollection                   │
+│              NFTCollection                  │
 │─────────────────────────────────────────────│
-│ Inherits:                                    │
-│  ├─ ERC721         (core NFT standard)       │
-│  ├─ ERC721URIStorage (metadata URIs)         │
-│  ├─ ERC721Enumerable (token enumeration)     │
-│  ├─ ERC2981        (royalty standard)        │
-│  └─ Ownable        (access control)          │
+│ Inherits:                                   │
+│  ├─ ERC721         (core NFT standard)      │
+│  ├─ ERC721URIStorage (metadata URIs)        │
+│  ├─ ERC721Enumerable (token enumeration)    │
+│  ├─ ERC2981        (royalty standard)       │
+│  └─ Ownable        (access control)         │
 │─────────────────────────────────────────────│
-│ State:                                       │
-│  _nextTokenId : uint256                      │
-│  MAX_ROYALTY_FEE : 1000 (10%)                │
+│ State:                                      │
+│  _nextTokenId : uint256                     │
+│  MAX_ROYALTY_FEE : 1000 (10%)               │
 │─────────────────────────────────────────────│
-│ Functions:                                   │
-│  + mintNFT(to, uri, royaltyFee) → tokenId    │
-│  + getCreator(tokenId) → address             │
-│  + tokenURI(tokenId) → string                │
-│  + totalSupply() → uint256                   │
-│  + supportsInterface(id) → bool              │
+│ Functions:                                  │
+│  + mintNFT(to, uri, royaltyFee) → tokenId   │
+│  + getCreator(tokenId) → address            │
+│  + tokenURI(tokenId) → string               │
+│  + totalSupply() → uint256                  │
+│  + supportsInterface(id) → bool             │
 └─────────────────────────────────────────────┘
 ```
 
