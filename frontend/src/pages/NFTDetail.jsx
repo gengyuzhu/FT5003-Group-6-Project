@@ -75,6 +75,7 @@ export default function NFTDetail() {
   const [txModalOpen, setTxModalOpen] = useState(false);
   const [txModalTitle, setTxModalTitle] = useState("Processing Transaction");
   const [txAction, setTxAction] = useState(null); // "buy" | "bid" | null
+  const [txRealMode, setTxRealMode] = useState(false); // true only when a real on-chain tx was initiated
   const [offerModal, setOfferModal] = useState(false);
   const [offerAmount, setOfferAmount] = useState("");
   const [offerExpiration, setOfferExpiration] = useState("7 Days");
@@ -107,7 +108,9 @@ export default function NFTDetail() {
   const handleBuy = () => {
     setTxModalTitle("Processing Purchase");
     setTxAction("buy");
-    if (isConnected && nft.listingId != null) {
+    const canDoRealTx = isConnected && nft.listingId != null;
+    setTxRealMode(canDoRealTx);
+    if (canDoRealTx) {
       buy(nft.listingId, nft.priceWei || 0n);
     }
     setTxModalOpen(true);
@@ -124,7 +127,9 @@ export default function NFTDetail() {
     }
     setTxModalTitle("Placing Bid");
     setTxAction("bid");
-    if (isConnected && nft.auctionId != null) {
+    const canDoRealTx = isConnected && nft.auctionId != null;
+    setTxRealMode(canDoRealTx);
+    if (canDoRealTx) {
       placeBid(nft.auctionId, bidAmount);
     }
     setTxModalOpen(true);
@@ -536,14 +541,14 @@ export default function NFTDetail() {
       {/* ====== Transaction Modal ====== */}
       <TransactionModal
         isOpen={txModalOpen}
-        onClose={() => { setTxModalOpen(false); setTxAction(null); }}
+        onClose={() => { setTxModalOpen(false); setTxAction(null); setTxRealMode(false); }}
         onComplete={handleTxComplete}
         title={txModalTitle}
-        isPending={isConnected ? txIsPending : undefined}
-        isConfirming={isConnected ? txIsConfirming : undefined}
-        isSuccess={isConnected ? txIsSuccess : undefined}
-        error={isConnected ? txError : undefined}
-        txHash={isConnected ? txHash : undefined}
+        isPending={txRealMode ? txIsPending : undefined}
+        isConfirming={txRealMode ? txIsConfirming : undefined}
+        isSuccess={txRealMode ? txIsSuccess : undefined}
+        error={txRealMode ? txError : undefined}
+        txHash={txRealMode ? txHash : undefined}
       />
 
       {/* ====== Make Offer Modal ====== */}
