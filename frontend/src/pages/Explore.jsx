@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAccount } from "wagmi";
+import { formatEther } from "viem";
 import {
   FiSearch,
   FiFilter,
@@ -8,9 +10,11 @@ import {
   FiShoppingCart,
   FiClock,
   FiX,
+  FiWifi,
 } from "react-icons/fi";
 import { HiOutlineSparkles } from "react-icons/hi2";
 import { ALL_NFTS } from "@/data/mockData";
+import { useAllListings, useAllAuctions } from "@/hooks/useListings";
 import Breadcrumb from "@/components/ui/Breadcrumb";
 
 // Map mockData to explore format — convert ISO endTime to unix timestamp
@@ -390,16 +394,33 @@ function SidebarContent({ types, setTypes, minPrice, setMinPrice, maxPrice, setM
 
 // ---- main component ----
 export default function Explore() {
+  const { isConnected } = useAccount();
+  const { listings: onChainListings, isLoading: listingsLoading } = useAllListings();
+  const { auctions: onChainAuctions, isLoading: auctionsLoading } = useAllAuctions();
+  const isLive = isConnected && !listingsLoading && !auctionsLoading;
+
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get("q") || "";
+  const [searchInput, setSearchInput] = useState(initialQuery);
   const [search, setSearch] = useState(initialQuery);
   const [types, setTypes] = useState([]);
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [categories, setCategories] = useState([]);
   const [sort, setSort] = useState("recent");
-  const [loading] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
+  const debounceRef = useRef(null);
+
+  // Debounce search input by 300ms
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setSearch(searchInput);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchInput]);
 
   const clearFilters = useCallback(() => {
     setTypes([]);
@@ -407,7 +428,7 @@ export default function Explore() {
     setMaxPrice("");
     setCategories([]);
     setSort("recent");
-    setSearch("");
+    setSearchInput("");
   }, []);
 
   const activeFilterCount = useMemo(() => {
@@ -419,8 +440,63 @@ export default function Explore() {
     return count;
   }, [types, minPrice, maxPrice, categories, sort]);
 
+  // Deterministic gradient based on tokenId
+  const GRADIENTS = [
+    "from-violet-500 to-fuchsia-500",
+    "from-cyan-500 to-blue-500",
+    "from-emerald-500 to-teal-500",
+    "from-orange-500 to-red-500",
+    "from-pink-500 to-rose-500",
+    "from-indigo-500 to-purple-500",
+    "from-amber-500 to-yellow-500",
+  ];
+
+  // Convert on-chain listings to display format — merges with mock when available
+  const liveListings = useMemo(() => {
+    const items = [];
+    for (const l of onChainListings) {
+      const grad = GRADIENTS[l.tokenId % GRADIENTS.length];
+      items.push({
+        id: `listing-${l.listingId}`,
+        listingId: l.listingId,
+        name: `NFT #${l.tokenId}`,
+        seller: `${l.seller.slice(0, 6)}...${l.seller.slice(-4)}`,
+        price: parseFloat(formatEther(l.price)).toFixed(4),
+        type: "fixed",
+        category: "Art",
+        gradient: grad,
+        image: "",
+        rarity: "",
+        time: l.expiration > 0 ? `Expires ${new Date(l.expiration * 1000).toLocaleDateString()}` : "No expiry",
+      });
+    }
+    for (const a of onChainAuctions) {
+      const grad = GRADIENTS[a.tokenId % GRADIENTS.length];
+      items.push({
+        id: `auction-${a.auctionId}`,
+        auctionId: a.auctionId,
+        name: `NFT #${a.tokenId}`,
+        seller: `${a.seller.slice(0, 6)}...${a.seller.slice(-4)}`,
+        currentBid: parseFloat(formatEther(a.highestBid)).toFixed(4),
+        price: parseFloat(formatEther(a.startPrice)).toFixed(4),
+        type: "auction",
+        endTime: a.endTime,
+        category: "Art",
+        gradient: grad,
+        image: "",
+        rarity: "",
+        time: "",
+      });
+    }
+    // When connected but no on-chain data exists yet, still show mock data as demo
+    if (items.length === 0 && isConnected) {
+      return MOCK_LISTINGS;
+    }
+    return items;
+  }, [onChainListings, onChainAuctions, isConnected]);
+
   const filtered = useMemo(() => {
-    let list = [...MOCK_LISTINGS];
+    let list = isLive ? [...liveListings] : [...MOCK_LISTINGS];
 
     // search
     if (search.trim()) {
@@ -463,7 +539,7 @@ export default function Explore() {
     if (sort === "high") list.sort((a, b) => getPrice(b) - getPrice(a));
 
     return list;
-  }, [search, types, minPrice, maxPrice, categories, sort]);
+  }, [search, types, minPrice, maxPrice, categories, sort, isLive, liveListings]);
 
   const sidebarProps = {
     types, setTypes,
@@ -496,9 +572,17 @@ export default function Explore() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-          className="text-dark-400 mt-2"
+          className="text-dark-400 mt-2 flex items-center gap-2"
         >
           Browse the latest listings and live auctions
+          <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
+            isLive
+              ? "bg-green-500/10 text-green-400 border border-green-500/20"
+              : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+          }`}>
+            <FiWifi size={10} />
+            {isLive ? "Live Data" : "Demo Data"}
+          </span>
         </motion.p>
       </div>
 
@@ -566,8 +650,8 @@ export default function Explore() {
               <input
                 type="text"
                 placeholder="Search NFTs by name, category, or seller..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 className="input-field w-full pl-11"
               />
             </div>
@@ -608,41 +692,57 @@ export default function Explore() {
           </motion.div>
 
           {/* masonry grid */}
-          {loading ? (
-            <div className="columns-1 sm:columns-2 lg:columns-3 gap-5">
+          {isConnected && (listingsLoading || auctionsLoading) && (
+            <div className="columns-1 sm:columns-2 lg:columns-3 gap-5 mb-8">
               {Array.from({ length: 6 }).map((_, i) => (
                 <SkeletonCard key={i} />
               ))}
             </div>
-          ) : (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={types.join(",") + categories.join(",") + sort + search + minPrice + maxPrice}
-                variants={stagger}
-                initial="hidden"
-                animate="visible"
-                exit="hidden"
-                className="columns-1 sm:columns-2 lg:columns-3 gap-5"
-              >
-                {filtered.length === 0 ? (
-                  <motion.p
-                    variants={cardVariant}
-                    className="text-dark-400 text-center py-20 text-lg"
-                  >
-                    No NFTs found matching your criteria.
-                  </motion.p>
-                ) : (
-                  filtered.map((nft, idx) => (
-                    <NftCard
-                      key={nft.id}
-                      nft={nft}
-                      heightClass={IMAGE_HEIGHTS[idx % IMAGE_HEIGHTS.length]}
-                    />
-                  ))
-                )}
-              </motion.div>
-            </AnimatePresence>
           )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={types.join(",") + categories.join(",") + sort + search + minPrice + maxPrice}
+              variants={stagger}
+              initial="hidden"
+              animate="visible"
+              exit="hidden"
+              className="columns-1 sm:columns-2 lg:columns-3 gap-5"
+            >
+              {filtered.length === 0 ? (
+                <motion.div
+                  variants={cardVariant}
+                  className="col-span-full flex flex-col items-center justify-center py-20"
+                >
+                  <div className="w-20 h-20 rounded-2xl bg-dark-800/60 flex items-center justify-center mb-5">
+                    <FiSearch className="text-dark-500 text-3xl" />
+                  </div>
+                  <h3 className="text-white font-semibold text-lg mb-2">No NFTs Found</h3>
+                  <p className="text-dark-400 text-sm text-center max-w-sm mb-6">
+                    Try adjusting your search or filters to discover more items.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={clearFilters}
+                      className="btn-secondary px-5 py-2 text-sm"
+                    >
+                      Clear All Filters
+                    </button>
+                    <Link to="/create" className="btn-primary px-5 py-2 text-sm">
+                      Create an NFT
+                    </Link>
+                  </div>
+                </motion.div>
+              ) : (
+                filtered.map((nft, idx) => (
+                  <NftCard
+                    key={nft.id}
+                    nft={nft}
+                    heightClass={IMAGE_HEIGHTS[idx % IMAGE_HEIGHTS.length]}
+                  />
+                ))
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
     </motion.div>

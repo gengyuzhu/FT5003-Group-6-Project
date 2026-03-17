@@ -35,7 +35,7 @@ describe("NFTCollection", function () {
     it("should reject royalty fee above 10%", async () => {
       await expect(
         nft.connect(alice).mintNFT(alice.address, "ipfs://test", 1001)
-      ).to.be.revertedWith("Royalty fee too high");
+      ).to.be.revertedWithCustomError(nft, "RoyaltyFeeTooHigh");
     });
 
     it("should increment token IDs", async () => {

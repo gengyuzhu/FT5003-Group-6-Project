@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
 import {
@@ -79,6 +79,12 @@ export default function Create() {
   const [mintProgress, setMintProgress] = useState(0);
   const [mintComplete, setMintComplete] = useState(false);
 
+  // Track mount state for async operations
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => { isMountedRef.current = false; };
+  }, []);
+
   const handleChange = (field) => (e) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
@@ -127,6 +133,7 @@ export default function Create() {
     setMintProgress(0);
 
     for (let i = 0; i < MINT_STEPS.length; i++) {
+      if (!isMountedRef.current) return;
       setMintStep(i);
       const [start, end] = MINT_STEPS[i].range;
       setMintProgress(start);
@@ -137,13 +144,16 @@ export default function Create() {
       const increment = (end - start) / steps;
       for (let s = 0; s < steps; s++) {
         await new Promise((r) => setTimeout(r, tick));
+        if (!isMountedRef.current) return;
         setMintProgress((prev) => Math.min(prev + increment, end));
       }
     }
+    if (!isMountedRef.current) return;
     setMintProgress(100);
     setMintComplete(true);
     // auto-dismiss after a short pause
     await new Promise((r) => setTimeout(r, 2200));
+    if (!isMountedRef.current) return;
     setMinting(false);
     setMintComplete(false);
     setMintStep(0);
@@ -340,7 +350,7 @@ export default function Create() {
                       onChange={(e) =>
                         setForm((prev) => ({ ...prev, royalty: parseFloat(e.target.value) }))
                       }
-                      className="absolute top-0 left-0 w-full h-full cursor-pointer"
+                      className="royalty-slider absolute top-0 left-0 w-full h-full cursor-pointer"
                       style={{
                         opacity: 0,
                         zIndex: 20,
@@ -421,23 +431,7 @@ export default function Create() {
               );
             })()}
 
-            {/* Hover / drag thumb animation via inline style tag */}
-            <style>{`
-              /* Make the invisible range input expand the thumb hit area */
-              input[type="range"]::-webkit-slider-thumb {
-                -webkit-appearance: none;
-                width: 28px;
-                height: 28px;
-                cursor: pointer;
-              }
-              input[type="range"]::-moz-range-thumb {
-                width: 28px;
-                height: 28px;
-                cursor: pointer;
-                border: none;
-                background: transparent;
-              }
-            `}</style>
+            {/* Thumb styles defined in index.css via .royalty-slider class */}
           </motion.div>
 
           {/* category */}

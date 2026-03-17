@@ -19,6 +19,13 @@ async function main() {
   const marketplaceAddress = await marketplace.getAddress();
   console.log("NFTMarketplace deployed to:", marketplaceAddress);
 
+  // Deploy SimpleOracle
+  const SimpleOracle = await hre.ethers.getContractFactory("SimpleOracle");
+  const oracle = await SimpleOracle.deploy();
+  await oracle.waitForDeployment();
+  const oracleAddress = await oracle.getAddress();
+  console.log("SimpleOracle deployed to:", oracleAddress);
+
   // Write addresses to a JSON file for the frontend
   const fs = require("fs");
   const path = require("path");
@@ -26,6 +33,7 @@ async function main() {
   const addresses = {
     nftCollection: nftAddress,
     marketplace: marketplaceAddress,
+    oracle: oracleAddress,
     network: hre.network.name,
     chainId: hre.network.config.chainId || 31337,
     deployer: deployer.address,
@@ -54,6 +62,12 @@ async function main() {
   fs.writeFileSync(
     path.join(abiDir, "NFTMarketplace.json"),
     JSON.stringify(mktArtifact.abi, null, 2)
+  );
+
+  const oracleArtifact = await hre.artifacts.readArtifact("SimpleOracle");
+  fs.writeFileSync(
+    path.join(abiDir, "SimpleOracle.json"),
+    JSON.stringify(oracleArtifact.abi, null, 2)
   );
   console.log("ABIs written to frontend/src/config/abis/");
 

@@ -87,12 +87,12 @@ export function useListNFT() {
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const list = useCallback(
-    (nftContract, tokenId, priceInEth) => {
+    (nftContract, tokenId, priceInEth, durationSeconds = 0) => {
       writeContract({
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "listNFT",
-        args: [nftContract, BigInt(tokenId), parseEther(priceInEth.toString())],
+        args: [nftContract, BigInt(tokenId), parseEther(priceInEth.toString()), BigInt(durationSeconds)],
       });
     },
     [writeContract]
@@ -201,6 +201,54 @@ export function useEndAuction() {
   );
 
   return { end, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useUpdateListingPrice() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const update = useCallback(
+    (listingId, newPriceInEth) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "updateListingPrice",
+        args: [BigInt(listingId), parseEther(newPriceInEth.toString())],
+      });
+    },
+    [writeContract]
+  );
+
+  return { update, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useCancelAuction() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const cancel = useCallback(
+    (auctionId) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "cancelAuction",
+        args: [BigInt(auctionId)],
+      });
+    },
+    [writeContract]
+  );
+
+  return { cancel, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useIsListingExpired(listingId) {
+  return useReadContract({
+    address: MARKETPLACE_ADDRESS,
+    abi: MARKETPLACE_ABI,
+    functionName: "isListingExpired",
+    args: [BigInt(listingId ?? 0)],
+    query: { enabled: listingId != null },
+  });
 }
 
 export function useWithdraw() {

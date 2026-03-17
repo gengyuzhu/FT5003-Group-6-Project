@@ -149,6 +149,7 @@ function Navbar() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                 placeholder="Search NFTs..."
+                aria-label="Search NFTs"
                 className="w-44 focus:w-64 transition-all duration-300 pl-9 pr-3 py-1.5 rounded-lg bg-dark-800/50 border border-dark-700/50 text-sm text-white placeholder-dark-400 focus:outline-none focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/20"
               />
             </div>
@@ -273,6 +274,7 @@ function Navbar() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                   placeholder="Search NFTs..."
+                  aria-label="Search NFTs"
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-dark-800/50 border border-dark-700/50 text-sm text-white placeholder-dark-400 focus:outline-none focus:border-primary-500/50"
                 />
               </div>

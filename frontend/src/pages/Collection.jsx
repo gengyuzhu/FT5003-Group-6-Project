@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -7,6 +7,7 @@ import {
   FiTrendingUp,
   FiLayers,
   FiArrowRight,
+  FiChevronDown,
 } from "react-icons/fi";
 import { HiOutlineCube } from "react-icons/hi2";
 import Breadcrumb from "@/components/ui/Breadcrumb";
@@ -32,8 +33,18 @@ const cardVariant = {
 export default function Collection() {
   const { slug } = useParams();
   const collection = getCollectionBySlug(slug);
-  const nfts = collection ? getNFTsByCollection(collection.id) : [];
+  const nftsRaw = collection ? getNFTsByCollection(collection.id) : [];
   const [imgErrors, setImgErrors] = useState({});
+  const [itemSort, setItemSort] = useState("default");
+
+  const nfts = useMemo(() => {
+    if (itemSort === "default") return nftsRaw;
+    const getPrice = (n) => parseFloat(n.type === "auction" ? n.currentBid : n.price);
+    return [...nftsRaw].sort((a, b) =>
+      itemSort === "price-low" ? getPrice(a) - getPrice(b) : getPrice(b) - getPrice(a)
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, itemSort]);
 
   if (!collection) {
     return (
@@ -111,6 +122,18 @@ export default function Collection() {
             ({nfts.length})
           </span>
         </h2>
+        <div className="relative">
+          <select
+            value={itemSort}
+            onChange={(e) => setItemSort(e.target.value)}
+            className="input-field text-sm py-2 pl-3 pr-8 appearance-none cursor-pointer"
+          >
+            <option value="default">Default</option>
+            <option value="price-low">Price: Low to High</option>
+            <option value="price-high">Price: High to Low</option>
+          </select>
+          <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none" size={14} />
+        </div>
       </div>
 
       <motion.div

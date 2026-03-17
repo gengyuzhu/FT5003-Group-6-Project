@@ -14,6 +14,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  */
 contract NFTCollection is ERC721, ERC721URIStorage, ERC721Enumerable, ERC2981, Ownable {
 
+    error RoyaltyFeeTooHigh();
+
     uint256 private _nextTokenId;
 
     uint96 public constant MAX_ROYALTY_FEE = 1000; // 10 %
@@ -39,7 +41,7 @@ contract NFTCollection is ERC721, ERC721URIStorage, ERC721Enumerable, ERC2981, O
         string calldata uri,
         uint96 royaltyFee
     ) external returns (uint256) {
-        require(royaltyFee <= MAX_ROYALTY_FEE, "Royalty fee too high");
+        if (royaltyFee > MAX_ROYALTY_FEE) revert RoyaltyFeeTooHigh();
 
         uint256 tokenId = _nextTokenId++;
         _safeMint(to, tokenId);

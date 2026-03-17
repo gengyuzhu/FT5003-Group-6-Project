@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -17,7 +17,7 @@ import {
 import Breadcrumb from "@/components/ui/Breadcrumb";
 import { MOCK_GLOBAL_ACTIVITY, getNFTById } from "@/data/mockData";
 
-// ---- mock events ----
+// ---- event type metadata ----
 const EVENT_TYPES = {
   mint: { label: "Mint", icon: HiOutlineSparkles, color: "text-green-400", bg: "bg-green-400/10" },
   sale: { label: "Sale", icon: FiShoppingCart, color: "text-blue-400", bg: "bg-blue-400/10" },
@@ -27,7 +27,7 @@ const EVENT_TYPES = {
 };
 
 // Map global activity to the display format — use each NFT's actual gradient
-const MOCK_EVENTS = MOCK_GLOBAL_ACTIVITY.map((e) => {
+const INITIAL_EVENTS = MOCK_GLOBAL_ACTIVITY.map((e) => {
   const nftData = getNFTById(e.nftId);
   return {
     id: e.id,
@@ -40,8 +40,54 @@ const MOCK_EVENTS = MOCK_GLOBAL_ACTIVITY.map((e) => {
     price: e.price !== "--" ? e.price.replace(" ETH", "") : null,
     time: e.time,
     gradient: nftData?.gradient || "from-primary-500 to-purple-500",
+    timestamp: Date.now() - Math.random() * 86400000, // spread across last 24h
   };
 });
+
+// Random data pools for generating live events
+const RANDOM_NAMES = [
+  "Cosmic Drift #421", "Neon Phantom #88", "AstroApe #305",
+  "Pixel Punk #77", "CyberCat #192", "Quantum Fox #41",
+  "Nova Genesis #8", "Glitch Realm #56", "Digital Bloom #14",
+];
+const RANDOM_ADDRESSES = [
+  "0x7a3f..e9c1", "0xb2d8..4f37", "0x91e5..a0d2",
+  "0xc4f0..1b89", "0x5d6e..72af", "0xf1a3..8e51",
+];
+const EVENT_KEYS = Object.keys(EVENT_TYPES);
+const GRADIENTS = [
+  "from-primary-500 to-purple-500",
+  "from-blue-500 to-cyan-500",
+  "from-green-500 to-emerald-500",
+  "from-pink-500 to-rose-500",
+  "from-yellow-500 to-orange-500",
+];
+
+function generateRandomEvent(id) {
+  const type = EVENT_KEYS[Math.floor(Math.random() * EVENT_KEYS.length)];
+  const price = type === "transfer" ? null : (Math.random() * 5 + 0.1).toFixed(2);
+  return {
+    id,
+    type,
+    nft: RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)],
+    nftId: `nft-${Math.floor(Math.random() * 20) + 1}`,
+    nftImage: null,
+    from: RANDOM_ADDRESSES[Math.floor(Math.random() * RANDOM_ADDRESSES.length)],
+    to: RANDOM_ADDRESSES[Math.floor(Math.random() * RANDOM_ADDRESSES.length)],
+    price,
+    time: "Just now",
+    gradient: GRADIENTS[Math.floor(Math.random() * GRADIENTS.length)],
+    timestamp: Date.now(),
+  };
+}
+
+// ---- Time range filter options ----
+const TIME_RANGES = [
+  { key: "1h", label: "1H", ms: 3600000 },
+  { key: "24h", label: "24H", ms: 86400000 },
+  { key: "7d", label: "7D", ms: 604800000 },
+  { key: "all", label: "All", ms: Infinity },
+];
 
 // animation variants
 const pageVariants = {
@@ -58,29 +104,32 @@ const rowVariant = {
   }),
 };
 
-// skeleton
-function SkeletonRow() {
-  return (
-    <div className="flex items-center gap-4 px-6 py-4 animate-pulse">
-      <div className="w-10 h-10 bg-dark-800 rounded-xl" />
-      <div className="flex-1 space-y-2">
-        <div className="h-4 bg-dark-800 rounded w-1/3" />
-        <div className="h-3 bg-dark-800 rounded w-1/5" />
-      </div>
-      <div className="h-4 bg-dark-800 rounded w-16" />
-    </div>
-  );
-}
-
 export default function Activity() {
   const [filter, setFilter] = useState("all");
-  const [loading] = useState(false);
+  const [timeRange, setTimeRange] = useState("all");
+  const [events, setEvents] = useState(INITIAL_EVENTS);
   const [imgErrors, setImgErrors] = useState({});
+  const nextIdRef = useRef(INITIAL_EVENTS.length + 1000);
 
-  const filtered =
-    filter === "all"
-      ? MOCK_EVENTS
-      : MOCK_EVENTS.filter((e) => e.type === filter);
+  // Real-time event simulation — prepend a new random event every 6s
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newEvent = generateRandomEvent(`live-${nextIdRef.current++}`);
+      setEvents((prev) => [newEvent, ...prev].slice(0, 100)); // Cap at 100 events
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Apply filters
+  const filtered = events.filter((e) => {
+    if (filter !== "all" && e.type !== filter) return false;
+    if (timeRange !== "all") {
+      const rangeMs = TIME_RANGES.find((r) => r.key === timeRange)?.ms || Infinity;
+      if (Date.now() - e.timestamp > rangeMs) return false;
+    }
+    return true;
+  });
 
   return (
     <motion.div
@@ -111,27 +160,47 @@ export default function Activity() {
           </motion.p>
         </div>
 
-        {/* filter dropdown */}
+        {/* filter controls */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="relative"
+          className="flex items-center gap-3"
         >
-          <FiFilter className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none" />
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="input-field pl-10 pr-10 appearance-none cursor-pointer"
-          >
-            <option value="all">All Events</option>
-            <option value="mint">Mints</option>
-            <option value="sale">Sales</option>
-            <option value="list">Listings</option>
-            <option value="bid">Bids</option>
-            <option value="transfer">Transfers</option>
-          </select>
-          <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none" />
+          {/* time range toggle */}
+          <div className="flex items-center gap-0.5 bg-dark-800/60 rounded-lg p-0.5 border border-dark-700/50">
+            {TIME_RANGES.map((range) => (
+              <button
+                key={range.key}
+                onClick={() => setTimeRange(range.key)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  timeRange === range.key
+                    ? "bg-primary-500/20 text-primary-400"
+                    : "text-dark-400 hover:text-white"
+                }`}
+              >
+                {range.label}
+              </button>
+            ))}
+          </div>
+
+          {/* event type dropdown */}
+          <div className="relative">
+            <FiFilter className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none" />
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="input-field pl-10 pr-10 appearance-none cursor-pointer"
+            >
+              <option value="all">All Events</option>
+              <option value="mint">Mints</option>
+              <option value="sale">Sales</option>
+              <option value="list">Listings</option>
+              <option value="bid">Bids</option>
+              <option value="transfer">Transfers</option>
+            </select>
+            <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none" />
+          </div>
         </motion.div>
       </div>
 
@@ -146,124 +215,119 @@ export default function Activity() {
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
         </span>
-        <span className="text-dark-400 text-sm">Live updates</span>
+        <span className="text-dark-400 text-sm">
+          Live updates — new events every ~6 seconds
+        </span>
       </motion.div>
 
       {/* event list */}
-      {loading ? (
-        <div className="glass-card overflow-hidden">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonRow key={i} />
-          ))}
+      <div className="glass-card overflow-hidden">
+        {/* table header (desktop) */}
+        <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-3 text-dark-400 text-xs uppercase tracking-wider border-b border-dark-800">
+          <span className="col-span-1">Type</span>
+          <span className="col-span-3">NFT</span>
+          <span className="col-span-2">From</span>
+          <span className="col-span-2">To</span>
+          <span className="col-span-2 text-right">Price</span>
+          <span className="col-span-2 text-right">Time</span>
         </div>
-      ) : (
-        <div className="glass-card overflow-hidden">
-          {/* table header (desktop) */}
-          <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-3 text-dark-400 text-xs uppercase tracking-wider border-b border-dark-800">
-            <span className="col-span-1">Type</span>
-            <span className="col-span-3">NFT</span>
-            <span className="col-span-2">From</span>
-            <span className="col-span-2">To</span>
-            <span className="col-span-2 text-right">Price</span>
-            <span className="col-span-2 text-right">Time</span>
-          </div>
 
-          <AnimatePresence mode="wait">
-            <motion.div key={filter}>
-              {filtered.length === 0 ? (
-                <p className="text-dark-500 text-center py-16">
-                  No events matching this filter.
-                </p>
-              ) : (
-                filtered.map((evt, i) => {
-                  const meta = EVENT_TYPES[evt.type];
-                  const Icon = meta.icon;
+        <AnimatePresence mode="wait">
+          <motion.div key={`${filter}-${timeRange}`}>
+            {filtered.length === 0 ? (
+              <p className="text-dark-500 text-center py-16">
+                No events matching this filter.
+              </p>
+            ) : (
+              filtered.map((evt, i) => {
+                const meta = EVENT_TYPES[evt.type];
+                if (!meta) return null;
+                const Icon = meta.icon;
 
-                  return (
-                    <motion.div
-                      key={evt.id}
-                      custom={i}
-                      variants={rowVariant}
-                      initial="hidden"
-                      animate="visible"
-                      className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center px-6 py-4 border-b border-dark-800/50 last:border-b-0 hover:bg-dark-800/30 transition-colors ${
-                        i % 2 === 0 ? "bg-dark-900/20" : ""
-                      }`}
-                    >
-                      {/* type icon */}
-                      <div className="col-span-1 flex items-center gap-3 md:gap-0">
+                return (
+                  <motion.div
+                    key={evt.id}
+                    custom={i}
+                    variants={rowVariant}
+                    initial="hidden"
+                    animate="visible"
+                    className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center px-6 py-4 border-b border-dark-800/50 last:border-b-0 hover:bg-dark-800/30 transition-colors ${
+                      i % 2 === 0 ? "bg-dark-900/20" : ""
+                    }`}
+                  >
+                    {/* type icon */}
+                    <div className="col-span-1 flex items-center gap-3 md:gap-0">
+                      <div
+                        className={`w-10 h-10 rounded-xl ${meta.bg} flex items-center justify-center flex-shrink-0`}
+                      >
+                        <Icon className={`${meta.color} text-lg`} />
+                      </div>
+                      <span className={`md:hidden ${meta.color} font-medium text-sm ml-2`}>
+                        {meta.label}
+                      </span>
+                    </div>
+
+                    {/* nft */}
+                    <div className="col-span-3 flex items-center gap-3">
+                      {evt.nftImage && !imgErrors[evt.id] ? (
+                        <img
+                          src={evt.nftImage}
+                          alt={evt.nft}
+                          className="hidden md:block w-8 h-8 rounded-lg object-cover flex-shrink-0"
+                          onError={() => setImgErrors((prev) => ({ ...prev, [evt.id]: true }))}
+                        />
+                      ) : (
                         <div
-                          className={`w-10 h-10 rounded-xl ${meta.bg} flex items-center justify-center flex-shrink-0`}
-                        >
-                          <Icon className={`${meta.color} text-lg`} />
-                        </div>
-                        <span className={`md:hidden ${meta.color} font-medium text-sm ml-2`}>
-                          {meta.label}
+                          className={`hidden md:block w-8 h-8 rounded-lg bg-gradient-to-br ${evt.gradient} flex-shrink-0`}
+                        />
+                      )}
+                      <Link
+                        to={`/nft/${evt.nftId}`}
+                        className="text-white font-medium truncate text-sm hover:text-primary-400 transition-colors"
+                      >
+                        {evt.nft}
+                      </Link>
+                    </div>
+
+                    {/* from */}
+                    <div className="col-span-2">
+                      <span className="md:hidden text-dark-500 text-xs mr-1">From:</span>
+                      <span className="text-dark-300 font-mono text-sm">
+                        {evt.from}
+                      </span>
+                    </div>
+
+                    {/* to */}
+                    <div className="col-span-2">
+                      <span className="md:hidden text-dark-500 text-xs mr-1">To:</span>
+                      <span className="text-dark-300 font-mono text-sm">
+                        {evt.to || "--"}
+                      </span>
+                    </div>
+
+                    {/* price */}
+                    <div className="col-span-2 text-right">
+                      {evt.price ? (
+                        <span className="gradient-text font-bold text-sm">
+                          {evt.price} ETH
                         </span>
-                      </div>
+                      ) : (
+                        <span className="text-dark-500 text-sm">--</span>
+                      )}
+                    </div>
 
-                      {/* nft */}
-                      <div className="col-span-3 flex items-center gap-3">
-                        {evt.nftImage && !imgErrors[evt.id] ? (
-                          <img
-                            src={evt.nftImage}
-                            alt={evt.nft}
-                            className="hidden md:block w-8 h-8 rounded-lg object-cover flex-shrink-0"
-                            onError={() => setImgErrors((prev) => ({ ...prev, [evt.id]: true }))}
-                          />
-                        ) : (
-                          <div
-                            className={`hidden md:block w-8 h-8 rounded-lg bg-gradient-to-br ${evt.gradient} flex-shrink-0`}
-                          />
-                        )}
-                        <Link
-                          to={`/nft/${evt.nftId}`}
-                          className="text-white font-medium truncate text-sm hover:text-primary-400 transition-colors"
-                        >
-                          {evt.nft}
-                        </Link>
-                      </div>
-
-                      {/* from */}
-                      <div className="col-span-2">
-                        <span className="md:hidden text-dark-500 text-xs mr-1">From:</span>
-                        <span className="text-dark-300 font-mono text-sm">
-                          {evt.from}
-                        </span>
-                      </div>
-
-                      {/* to */}
-                      <div className="col-span-2">
-                        <span className="md:hidden text-dark-500 text-xs mr-1">To:</span>
-                        <span className="text-dark-300 font-mono text-sm">
-                          {evt.to || "--"}
-                        </span>
-                      </div>
-
-                      {/* price */}
-                      <div className="col-span-2 text-right">
-                        {evt.price ? (
-                          <span className="gradient-text font-bold text-sm">
-                            {evt.price} ETH
-                          </span>
-                        ) : (
-                          <span className="text-dark-500 text-sm">--</span>
-                        )}
-                      </div>
-
-                      {/* time */}
-                      <div className="col-span-2 text-right text-dark-400 text-sm flex items-center justify-end gap-1">
-                        <FiClock className="w-3 h-3" />
-                        {evt.time}
-                      </div>
-                    </motion.div>
-                  );
-                })
-              )}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      )}
+                    {/* time */}
+                    <div className="col-span-2 text-right text-dark-400 text-sm flex items-center justify-end gap-1">
+                      <FiClock className="w-3 h-3" />
+                      {evt.time}
+                    </div>
+                  </motion.div>
+                );
+              })
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
 
       {/* summary cards */}
       <motion.div
@@ -273,11 +337,11 @@ export default function Activity() {
         className="grid grid-cols-2 sm:grid-cols-5 gap-4 mt-10"
       >
         {[
-          { label: "Mints", count: MOCK_EVENTS.filter((e) => e.type === "mint").length, icon: HiOutlineSparkles, color: "text-green-400" },
-          { label: "Sales", count: MOCK_EVENTS.filter((e) => e.type === "sale").length, icon: FiShoppingCart, color: "text-blue-400" },
-          { label: "Listings", count: MOCK_EVENTS.filter((e) => e.type === "list").length, icon: FiTag, color: "text-yellow-400" },
-          { label: "Bids", count: MOCK_EVENTS.filter((e) => e.type === "bid").length, icon: FiDollarSign, color: "text-purple-400" },
-          { label: "Transfers", count: MOCK_EVENTS.filter((e) => e.type === "transfer").length, icon: FiZap, color: "text-cyan-400" },
+          { label: "Mints", count: events.filter((e) => e.type === "mint").length, icon: HiOutlineSparkles, color: "text-green-400" },
+          { label: "Sales", count: events.filter((e) => e.type === "sale").length, icon: FiShoppingCart, color: "text-blue-400" },
+          { label: "Listings", count: events.filter((e) => e.type === "list").length, icon: FiTag, color: "text-yellow-400" },
+          { label: "Bids", count: events.filter((e) => e.type === "bid").length, icon: FiDollarSign, color: "text-purple-400" },
+          { label: "Transfers", count: events.filter((e) => e.type === "transfer").length, icon: FiZap, color: "text-cyan-400" },
         ].map((s) => (
           <div key={s.label} className="glass-card p-5 text-center space-y-2">
             <s.icon className={`${s.color} text-2xl mx-auto`} />

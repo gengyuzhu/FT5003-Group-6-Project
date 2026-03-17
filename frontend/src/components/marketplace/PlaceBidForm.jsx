@@ -10,7 +10,7 @@ export default function PlaceBidForm({ auctionId, minBid, seller }) {
   const { bid, isPending, isConfirming } = usePlaceBid();
   const [amount, setAmount] = useState("");
 
-  const handleBid = (e) => {
+  const handleBid = async (e) => {
     e.preventDefault();
     if (!address) return toast.error("Please connect your wallet");
     if (address.toLowerCase() === seller?.toLowerCase()) {
@@ -24,7 +24,7 @@ export default function PlaceBidForm({ auctionId, minBid, seller }) {
     }
 
     try {
-      bid(auctionId, amount);
+      await bid(auctionId, amount);
       toast.success("Bid transaction submitted!");
     } catch (err) {
       toast.error("Failed: " + (err.shortMessage || err.message));

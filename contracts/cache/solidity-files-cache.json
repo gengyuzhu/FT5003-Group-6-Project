@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "E:\\2025 NUS\\FT5003\\Project\\contracts\\contracts\\NFTCollection.sol": {
-      "lastModificationDate": 1773554129763,
-      "contentHash": "dec2422b7d38a6df9ab241d7a33437ad",
+      "lastModificationDate": 1773738694336,
+      "contentHash": "d1665a26a8d9175406af4be024ddc618",
       "sourceName": "contracts/NFTCollection.sol",
       "solcConfig": {
         "version": "0.8.28",
@@ -960,8 +960,8 @@
       ]
     },
     "E:\\2025 NUS\\FT5003\\Project\\contracts\\contracts\\NFTMarketplace.sol": {
-      "lastModificationDate": 1773554174799,
-      "contentHash": "9d0e37f9104b984409c90d01a72426ef",
+      "lastModificationDate": 1773740575213,
+      "contentHash": "5bfc1e7250b24876644085fcf0b5b2a3",
       "sourceName": "contracts/NFTMarketplace.sol",
       "solcConfig": {
         "version": "0.8.28",
@@ -991,7 +991,8 @@
         "@openzeppelin/contracts/token/ERC721/IERC721.sol",
         "@openzeppelin/contracts/token/common/ERC2981.sol",
         "@openzeppelin/contracts/access/Ownable.sol",
-        "@openzeppelin/contracts/utils/ReentrancyGuard.sol"
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+        "@openzeppelin/contracts/utils/Pausable.sol"
       ],
       "versionPragmas": [
         "^0.8.24"
@@ -1072,6 +1073,82 @@
       ],
       "artifacts": [
         "StorageSlot"
+      ]
+    },
+    "E:\\2025 NUS\\FT5003\\Project\\contracts\\node_modules\\@openzeppelin\\contracts\\utils\\Pausable.sol": {
+      "lastModificationDate": 1773589272770,
+      "contentHash": "0d47b53e10b1985efbb396f937626279",
+      "sourceName": "@openzeppelin/contracts/utils/Pausable.sol",
+      "solcConfig": {
+        "version": "0.8.28",
+        "settings": {
+          "evmVersion": "cancun",
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../utils/Context.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "Pausable"
+      ]
+    },
+    "E:\\2025 NUS\\FT5003\\Project\\contracts\\contracts\\SimpleOracle.sol": {
+      "lastModificationDate": 1773724028222,
+      "contentHash": "6404fd54467a0cf444c4ec96cfe2b1e9",
+      "sourceName": "contracts/SimpleOracle.sol",
+      "solcConfig": {
+        "version": "0.8.28",
+        "settings": {
+          "evmVersion": "cancun",
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/Ownable.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "SimpleOracle"
       ]
     }
   }

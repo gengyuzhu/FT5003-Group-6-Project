@@ -8,14 +8,14 @@ export default function BuyButton({ listingId, price, seller }) {
   const { address } = useAccount();
   const { buy, isPending, isConfirming } = useBuyNFT();
 
-  const handleBuy = () => {
+  const handleBuy = async () => {
     if (!address) return toast.error("Please connect your wallet");
     if (address.toLowerCase() === seller?.toLowerCase()) {
       return toast.error("You cannot buy your own NFT");
     }
 
     try {
-      buy(listingId, price);
+      await buy(listingId, price);
       toast.success("Purchase transaction submitted!");
     } catch (err) {
       toast.error("Failed: " + (err.shortMessage || err.message));

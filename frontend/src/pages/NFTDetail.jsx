@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAccount } from "wagmi";
 import toast from "react-hot-toast";
 import {
   FiExternalLink,
@@ -8,18 +9,15 @@ import {
   FiShare2,
   FiClock,
   FiTag,
-  FiUser,
   FiShoppingCart,
   FiX,
   FiCopy,
   FiCheckCircle,
 } from "react-icons/fi";
-import {
-  HiOutlineCube,
-  HiOutlineListBullet,
-  HiOutlineBolt,
-} from "react-icons/hi2";
+import { HiOutlineBolt } from "react-icons/hi2";
 import { getNFTById, getCollectionById } from "@/data/mockData";
+import { useBuyNFT, usePlaceBid } from "@/hooks/useMarketplace";
+import useFavoritesStore from "@/stores/useFavoritesStore";
 import Breadcrumb from "@/components/ui/Breadcrumb";
 import TransactionModal from "@/components/ui/TransactionModal";
 
@@ -60,14 +58,23 @@ export default function NFTDetail() {
   const nft = getNFTById(id);
   const collection = nft ? getCollectionById(nft.collectionId) : null;
 
+  const { isConnected } = useAccount();
+  const { buy, hash: buyHash, isPending: buyPending, isConfirming: buyConfirming, isSuccess: buySuccess, error: buyError } = useBuyNFT();
+  const { bid: placeBid, hash: bidHash, isPending: bidPending, isConfirming: bidConfirming, isSuccess: bidSuccess, error: bidError } = usePlaceBid();
+  const toggleFavorite = useFavoritesStore((s) => s.toggleFavorite);
+  const nftId = nft ? nft.id : null;
+  const liked = useFavoritesStore((s) => nftId !== null && s.favorites.includes(nftId));
+
   // All hooks must be called before any early return (Rules of Hooks)
   const [activeTab, setActiveTab] = useState("Details");
   const [bidAmount, setBidAmount] = useState("");
-  const [liked, setLiked] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [copiedField, setCopiedField] = useState(null);
+  const copyTimerRef = useRef(null);
+  useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
   const [txModalOpen, setTxModalOpen] = useState(false);
   const [txModalTitle, setTxModalTitle] = useState("Processing Transaction");
+  const [txAction, setTxAction] = useState(null); // "buy" | "bid" | null
   const [offerModal, setOfferModal] = useState(false);
   const [offerAmount, setOfferAmount] = useState("");
   const [offerExpiration, setOfferExpiration] = useState("7 Days");
@@ -86,14 +93,23 @@ export default function NFTDetail() {
   }
 
   const copyToClipboard = (text, field) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    toast.success("Copied to clipboard!");
-    setTimeout(() => setCopiedField(null), 2000);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(field);
+      toast.success("Copied to clipboard!");
+      const t = setTimeout(() => setCopiedField(null), 2000);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = t;
+    }).catch(() => {
+      toast.error("Failed to copy to clipboard");
+    });
   };
 
   const handleBuy = () => {
     setTxModalTitle("Processing Purchase");
+    setTxAction("buy");
+    if (isConnected && nft.listingId != null) {
+      buy(nft.listingId, nft.priceWei || 0n);
+    }
     setTxModalOpen(true);
   };
 
@@ -102,19 +118,30 @@ export default function NFTDetail() {
       toast.error("Enter a valid bid amount");
       return;
     }
-    // Validate bid exceeds current highest bid
     if (nft.currentBid && parseFloat(bidAmount) <= parseFloat(nft.currentBid)) {
       toast.error(`Bid must exceed current bid of ${nft.currentBid} ETH`);
       return;
     }
     setTxModalTitle("Placing Bid");
+    setTxAction("bid");
+    if (isConnected && nft.auctionId != null) {
+      placeBid(nft.auctionId, bidAmount);
+    }
     setTxModalOpen(true);
   };
 
   const handleTxComplete = () => {
     toast.success("Transaction completed successfully!");
     setBidAmount("");
+    setTxAction(null);
   };
+
+  // Derive real tx state based on action
+  const txHash = txAction === "buy" ? buyHash : txAction === "bid" ? bidHash : undefined;
+  const txIsPending = txAction === "buy" ? buyPending : txAction === "bid" ? bidPending : undefined;
+  const txIsConfirming = txAction === "buy" ? buyConfirming : txAction === "bid" ? bidConfirming : undefined;
+  const txIsSuccess = txAction === "buy" ? buySuccess : txAction === "bid" ? bidSuccess : undefined;
+  const txError = txAction === "buy" ? buyError : txAction === "bid" ? bidError : undefined;
 
   const handleOfferSubmit = () => {
     if (!offerAmount || parseFloat(offerAmount) <= 0) {
@@ -173,17 +200,20 @@ export default function NFTDetail() {
           {/* action row */}
           <div className="flex items-center gap-3 mt-4">
             <button
-              onClick={() => setLiked(!liked)}
+              onClick={() => toggleFavorite(nft.id)}
               className={`glass-card p-3 rounded-xl transition-colors ${
                 liked ? "text-red-400" : "text-dark-400 hover:text-red-400"
               }`}
             >
-              <FiHeart className={liked ? "fill-current" : ""} />
+              <FiHeart style={liked ? { fill: 'currentColor', strokeWidth: 0 } : {}} />
             </button>
             <button
               onClick={() => {
-                navigator.clipboard.writeText(window.location.href);
-                toast.success("Link copied to clipboard!");
+                navigator.clipboard.writeText(window.location.href).then(() => {
+                  toast.success("Link copied to clipboard!");
+                }).catch(() => {
+                  toast.error("Failed to copy link");
+                });
               }}
               className="glass-card p-3 rounded-xl text-dark-400 hover:text-primary-400 transition-colors"
             >
@@ -506,9 +536,14 @@ export default function NFTDetail() {
       {/* ====== Transaction Modal ====== */}
       <TransactionModal
         isOpen={txModalOpen}
-        onClose={() => setTxModalOpen(false)}
+        onClose={() => { setTxModalOpen(false); setTxAction(null); }}
         onComplete={handleTxComplete}
         title={txModalTitle}
+        isPending={isConnected ? txIsPending : undefined}
+        isConfirming={isConnected ? txIsConfirming : undefined}
+        isSuccess={isConnected ? txIsSuccess : undefined}
+        error={isConnected ? txError : undefined}
+        txHash={isConnected ? txHash : undefined}
       />
 
       {/* ====== Make Offer Modal ====== */}

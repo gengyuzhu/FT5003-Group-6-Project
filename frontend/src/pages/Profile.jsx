@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAccount } from "wagmi";
@@ -16,6 +16,10 @@ import {
 import { HiOutlineUser, HiOutlinePaintBrush } from "react-icons/hi2";
 import toast from "react-hot-toast";
 import { MOCK_USER_PROFILE, getNFTById } from "@/data/mockData";
+import { useUserNFTs } from "@/hooks/useNFTCollection";
+import { useListNFT as useListNFTHook, useMarketplaceAddress } from "@/hooks/useMarketplace";
+import { useApproveNFT } from "@/hooks/useNFTCollection";
+import useFavoritesStore from "@/stores/useFavoritesStore";
 import Breadcrumb from "@/components/ui/Breadcrumb";
 import TransactionModal from "@/components/ui/TransactionModal";
 
@@ -42,8 +46,16 @@ const cardVariant = {
 
 export default function Profile() {
   const { address, isConnected } = useAccount();
+  const { nfts: userNFTs, isLoading: nftsLoading } = useUserNFTs();
+  const marketplaceAddr = useMarketplaceAddress();
+  const { list: listOnChain, hash: listHash, isPending: listPending, isConfirming: listConfirming, isSuccess: listSuccess, error: listError } = useListNFTHook();
+  const { approve: approveNFT } = useApproveNFT();
+  const favorites = useFavoritesStore((s) => s.favorites);
+
   const [activeTab, setActiveTab] = useState("collected");
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef(null);
+  useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
 
   const [imgErrors, setImgErrors] = useState({});
 
@@ -56,21 +68,36 @@ export default function Profile() {
   // Transaction modal state
   const [txModalOpen, setTxModalOpen] = useState(false);
 
-  const displayAddress = isConnected
+  const displayAddress = (isConnected && address)
     ? address
     : MOCK_USER_PROFILE.address;
-  const truncated = `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}`;
+  const truncated = displayAddress
+    ? `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}`
+    : "0x...";
 
   const copyAddress = () => {
-    navigator.clipboard.writeText(displayAddress);
-    setCopied(true);
-    toast.success("Address copied!");
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard.writeText(displayAddress).then(() => {
+      setCopied(true);
+      toast.success("Address copied!");
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      toast.error("Failed to copy address");
+    });
   };
 
-  const ownedNFTs = MOCK_USER_PROFILE.owned.map((id) => getNFTById(id)).filter(Boolean);
+  // When connected, show real on-chain NFTs; otherwise mock data
+  const ownedNFTs = isConnected && userNFTs.length > 0
+    ? userNFTs.map((n) => ({
+        id: `token-${n.tokenId}`,
+        tokenId: n.tokenId,
+        name: n.name,
+        image: n.imageUrl,
+        gradient: "from-violet-500 to-fuchsia-500",
+      }))
+    : MOCK_USER_PROFILE.owned.map((id) => getNFTById(id)).filter(Boolean);
   const createdNFTs = MOCK_USER_PROFILE.created.map((id) => getNFTById(id)).filter(Boolean);
-  const favoritedNFTs = MOCK_USER_PROFILE.favorited.map((id) => getNFTById(id)).filter(Boolean);
+  const favoritedNFTs = favorites.map((id) => getNFTById(id)).filter(Boolean);
 
   const handleListForSale = (nft) => {
     setListNFT(nft);
@@ -81,6 +108,16 @@ export default function Profile() {
 
   const handleConfirmListing = () => {
     setListModalOpen(false);
+    if (isConnected && listNFT?.tokenId != null) {
+      // Approve marketplace then list
+      approveNFT(marketplaceAddr, listNFT.tokenId);
+      listOnChain(
+        /* nftContract — use deployed address */ undefined,
+        listNFT.tokenId,
+        listPrice,
+        0
+      );
+    }
     setTxModalOpen(true);
   };
 
@@ -521,6 +558,11 @@ export default function Profile() {
         onClose={() => setTxModalOpen(false)}
         onComplete={handleTxComplete}
         title="Listing NFT"
+        isPending={isConnected ? listPending : undefined}
+        isConfirming={isConnected ? listConfirming : undefined}
+        isSuccess={isConnected ? listSuccess : undefined}
+        error={isConnected ? listError : undefined}
+        txHash={isConnected ? listHash : undefined}
       />
     </motion.div>
   );

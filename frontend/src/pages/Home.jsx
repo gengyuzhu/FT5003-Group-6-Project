@@ -78,6 +78,23 @@ const fadeUp = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
 };
 
+// ---- responsive cards-per-page hook ----
+function useCardsPerPage() {
+  const [cpp, setCpp] = useState(4);
+  useEffect(() => {
+    const update = () => {
+      const w = window.innerWidth;
+      if (w < 640) setCpp(1);
+      else if (w < 1024) setCpp(2);
+      else setCpp(4);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return cpp;
+}
+
 // ---- NFT card component (enhanced with glassmorphism glow + image zoom) ----
 function NFTCard({ nft }) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -87,7 +104,7 @@ function NFTCard({ nft }) {
       <motion.div
         whileHover={{ y: -8, scale: 1.03 }}
         transition={{ type: "spring", stiffness: 300, damping: 20 }}
-        className="glass-card w-[260px] flex-shrink-0 overflow-hidden cursor-pointer group relative"
+        className="glass-card w-full flex-shrink-0 overflow-hidden cursor-pointer group relative"
         style={{ willChange: "transform" }}
       >
         {/* glassmorphism glow on hover */}
@@ -131,20 +148,29 @@ function NFTCard({ nft }) {
 }
 
 // ---- carousel constants ----
-const CARDS_PER_PAGE = 4;
+const CARD_GAP = 20;
 const AUTO_PLAY_MS = 4000;
-const TOTAL_PAGES = Math.ceil(FEATURED_NFTS.length / CARDS_PER_PAGE);
 
 // ---- main component ----
 export default function Home() {
+  const cardsPerPage = useCardsPerPage();
+  const TOTAL_PAGES = Math.ceil(FEATURED_NFTS.length / cardsPerPage);
   const [currentPage, setCurrentPage] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [progress, setProgress] = useState(0);
+  const carouselRef = useRef(null);
+
+  // Reset page when breakpoint changes
+  useEffect(() => {
+    setCurrentPage(0);
+    setProgress(0);
+  }, [cardsPerPage]);
 
   const goToPage = useCallback((page) => {
-    setCurrentPage(((page % TOTAL_PAGES) + TOTAL_PAGES) % TOTAL_PAGES);
+    const tp = Math.ceil(FEATURED_NFTS.length / cardsPerPage);
+    setCurrentPage(((page % tp) + tp) % tp);
     setProgress(0);
-  }, []);
+  }, [cardsPerPage]);
 
   const nextPage = useCallback(() => goToPage(currentPage + 1), [currentPage, goToPage]);
   const prevPage = useCallback(() => goToPage(currentPage - 1), [currentPage, goToPage]);
@@ -253,12 +279,14 @@ export default function Home() {
           <div className="flex gap-2">
             <button
               onClick={prevPage}
+              aria-label="Previous page"
               className="p-2 glass-card hover:bg-dark-800 transition-colors rounded-lg"
             >
               <FiChevronLeft className="text-white" />
             </button>
             <button
               onClick={nextPage}
+              aria-label="Next page"
               className="p-2 glass-card hover:bg-dark-800 transition-colors rounded-lg"
             >
               <FiChevronRight className="text-white" />
@@ -268,20 +296,23 @@ export default function Home() {
 
         {/* Carousel viewport */}
         <div
+          ref={carouselRef}
           className="overflow-hidden"
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
         >
-          <motion.div
-            className="flex gap-5"
-            animate={{ x: -currentPage * (260 + 20) * CARDS_PER_PAGE }}
-            initial={false}
-            transition={{ type: "spring", stiffness: 200, damping: 30 }}
+          <div
+            className="grid transition-transform duration-500 ease-out gap-5"
+            style={{
+              gridTemplateColumns: `repeat(${FEATURED_NFTS.length}, minmax(0, 1fr))`,
+              width: `${(FEATURED_NFTS.length / cardsPerPage) * 100}%`,
+              transform: `translateX(-${currentPage * (100 / Math.ceil(FEATURED_NFTS.length / cardsPerPage))}%)`,
+            }}
           >
             {FEATURED_NFTS.map((nft) => (
               <NFTCard key={nft.id} nft={nft} />
             ))}
-          </motion.div>
+          </div>
         </div>
 
         {/* Progress bar */}

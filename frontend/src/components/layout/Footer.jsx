@@ -71,7 +71,7 @@ function Footer() {
             <ul className="space-y-2.5">
               {footerLinks.resources.map(({ label, href }) => (
                 <li key={label}>
-                  <a href={href} className="text-sm text-dark-400 hover:text-primary-400 transition-colors">
+                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-sm text-dark-400 hover:text-primary-400 transition-colors">
                     {label}
                   </a>
                 </li>

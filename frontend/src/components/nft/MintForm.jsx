@@ -61,7 +61,7 @@ export default function MintForm() {
 
       toast.loading("Minting NFT...", { id: "mint" });
       const royaltyBps = Math.round(form.royaltyFee * 100);
-      mint(address, tokenURI, royaltyBps);
+      await mint(address, tokenURI, royaltyBps);
       toast.success("Mint transaction submitted!", { id: "mint" });
     } catch (err) {
       toast.error("Failed to mint: " + (err.shortMessage || err.message), {

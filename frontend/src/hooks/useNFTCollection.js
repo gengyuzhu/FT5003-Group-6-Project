@@ -1,4 +1,4 @@
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from "wagmi";
+import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useAccount } from "wagmi";
 import { useState, useEffect, useCallback } from "react";
 import { fetchMetadata, resolveIPFS } from "@/utils/ipfs";
 
@@ -168,38 +168,79 @@ export function useUserNFTs() {
     abi: NFT_ABI,
     functionName: "balanceOf",
     args: [address],
-    enabled: !!address,
+    query: { enabled: !!address },
   });
 
+  const count = balance ? Number(balance) : 0;
+
+  // Multicall: get all tokenOfOwnerByIndex in one batch
+  const indexContracts = Array.from({ length: count }, (_, i) => ({
+    address: NFT_ADDRESS,
+    abi: NFT_ABI,
+    functionName: "tokenOfOwnerByIndex",
+    args: [address, BigInt(i)],
+  }));
+
+  const { data: tokenIdResults, isLoading: idsLoading } = useReadContracts({
+    contracts: indexContracts,
+    query: { enabled: count > 0 },
+  });
+
+  // Extract token IDs
+  const tokenIds = (tokenIdResults || [])
+    .filter((r) => r.status === "success")
+    .map((r) => Number(r.result));
+
+  // Multicall: get tokenURI for each owned token
+  const uriContracts = tokenIds.map((tid) => ({
+    address: NFT_ADDRESS,
+    abi: NFT_ABI,
+    functionName: "tokenURI",
+    args: [BigInt(tid)],
+  }));
+
+  const { data: uriResults, isLoading: urisLoading } = useReadContracts({
+    contracts: uriContracts,
+    query: { enabled: tokenIds.length > 0 },
+  });
+
+  // Resolve metadata
   const [nfts, setNfts] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [metaLoading, setMetaLoading] = useState(false);
 
   useEffect(() => {
-    if (!address || !balance || Number(balance) === 0) {
+    if (!uriResults || uriResults.length === 0) {
       setNfts([]);
       return;
     }
-
     let cancelled = false;
-    setIsLoading(true);
+    setMetaLoading(true);
 
-    const loadNFTs = async () => {
-      const results = [];
-      for (let i = 0; i < Number(balance); i++) {
+    const load = async () => {
+      const items = [];
+      for (let i = 0; i < uriResults.length; i++) {
+        const r = uriResults[i];
+        if (r.status !== "success" || !r.result) continue;
         try {
-          // This would need a multicall in production; simplified here
-          results.push({ tokenId: i, index: i });
-        } catch {}
+          const meta = await fetchMetadata(r.result);
+          items.push({
+            tokenId: tokenIds[i],
+            metadata: meta,
+            imageUrl: resolveIPFS(meta.image),
+            name: meta.name || `Token #${tokenIds[i]}`,
+          });
+        } catch {
+          items.push({ tokenId: tokenIds[i], metadata: null, imageUrl: "", name: `Token #${tokenIds[i]}` });
+        }
       }
       if (!cancelled) {
-        setNfts(results);
-        setIsLoading(false);
+        setNfts(items);
+        setMetaLoading(false);
       }
     };
-
-    loadNFTs();
+    load();
     return () => { cancelled = true; };
-  }, [address, balance]);
+  }, [uriResults, tokenIds.join(",")]);
 
-  return { nfts, isLoading, balance: Number(balance || 0) };
+  return { nfts, isLoading: idsLoading || urisLoading || metaLoading, balance: count };
 }

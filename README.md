@@ -14,11 +14,16 @@ A full-stack decentralized NFT marketplace built on Ethereum, supporting minting
 
 ### Smart Contract
 - **Mint NFTs** - Create ERC-721 tokens with metadata stored on IPFS via Pinata
-- **Fixed-Price Listings** - List NFTs at a set price and allow instant purchases
-- **English Auctions** - Time-bound auctions with real-time countdown timers and competitive bidding
+- **Fixed-Price Listings** - List NFTs at a set price with optional expiration duration; allow instant purchases
+- **English Auctions** - Time-bound auctions with real-time countdown timers, competitive bidding, and 5% minimum bid increment
 - **Royalty Enforcement** - ERC-2981 royalties applied automatically on every secondary sale
 - **Platform Fee** - Configurable marketplace fee (default 2.5%) collected on each transaction
-- **Secure Payments** - Pull-over-push pattern for auction refunds, guarded by ReentrancyGuard
+- **Pull-Payment Fund Distribution** - All sale proceeds (platform fee, royalty, seller payment) accumulate in `pendingWithdrawals` for safe withdrawal, eliminating reentrancy and gas-griefing risks
+- **Pausable** - Contract owner can pause/unpause all marketplace operations via OpenZeppelin Pausable
+- **Update Listing Price** - Sellers can update the price of active listings on-chain
+- **Cancel Auction** - Sellers can cancel auctions with no bids and reclaim their escrowed NFT
+- **Custom Errors** - 18 gas-efficient custom errors replacing `require()` strings for cheaper reverts
+- **On-Chain Oracle (SimpleOracle)** - Multi-reporter median-based price feed contract with authorized reporters, round-based aggregation, staleness checks, and custom errors
 
 ### Frontend
 - **Collection Pages** - Dedicated pages for each NFT collection with banner, stats (items, owners, floor price, volume), and NFT grid
@@ -31,13 +36,24 @@ A full-stack decentralized NFT marketplace built on Ethereum, supporting minting
 - **Custom Wallet Menu** - User dropdown with address display, network switching (Hardhat -> Sepolia), and disconnect button
 - **Real Images** - Copyright-free images via picsum.photos with gradient fallbacks on load failure
 - **Market Overview** - Real-time market analytics dashboard with Fear & Greed gauge, animated stat cards (market cap, volume, sales, avg floor), collection rankings, top sales carousel, market pulse bars, and key insights - values fluctuate via simulated live data every 4 seconds
+- **Decentralized Oracle Demo** - Interactive Oracle Price Feed on the Market page: 7 simulated oracle nodes, 3 aggregation modes (Centralized / Simple Average / ASTREA), click-to-toggle malicious nodes, SVG price consensus chart, stake-weighted median with outlier slashing, bilingual (EN/ZH) educational content explaining the Oracle Problem
+- **Oracle Attack Simulator** - Guided 3-step interactive walkthrough on the Market page demonstrating the Oracle Problem: Step 1 shows centralized single-point-of-failure, Step 2 reveals average vulnerability to outliers, Step 3 proves ASTREA resilience — with embedded quick-action buttons, live condition checklists, real-time accuracy meters, animated countdown ring for auto-advance, accuracy snapshots at each stage, and a final 3-column comparison summary with key takeaway
 - **Breadcrumb Navigation** - Contextual breadcrumbs on all sub-pages (Explore, Create, NFTDetail, Profile, Activity, Collection, Market)
 - **Wallet Integration** - Connect via MetaMask, WalletConnect, and other wallets through RainbowKit
+- **Responsive Carousel** - Home page featured NFT carousel adapts to screen size (1 card mobile, 2 tablet, 4 desktop)
+- **Accessibility** - ARIA roles/labels on modals and inputs, focus trap in TransactionModal, reduced-motion media query support
+- **Global Favorites (Zustand)** - Persistent favorites stored in localStorage via Zustand, synced across NFTDetail and Profile pages
+- **Real On-Chain Data** - Explore, NFTDetail, and Profile pages fetch live blockchain data when wallet is connected; graceful mock data fallback when disconnected
+- **Real Transaction States** - TransactionModal supports real wagmi transaction lifecycle (wallet approval, blockchain confirmation, success/error) with live tx hash links to Etherscan
 - **Modern UI** - Dark-themed, responsive interface with smooth Framer Motion animations and glassmorphism effects
 - **Premium Royalty Slider** - Custom-styled range input with gradient track, floating tooltip bubble, tick marks, and glow effects
 - **Trending Collections** - Gold/Silver/Bronze rank badges, hover glow effects, animated row entries, and "View All" button
 - **Interactive NFT Actions** - Share (copy link), external link (IPFS), and favorite buttons with toast feedback
 - **Navbar Search** - Global search bar that navigates to Explore with pre-filled query
+- **Skeleton Loading** - Reusable skeleton components (NFTCard, NFTDetail, Profile, Market) for smooth loading states
+- **Friendly Error Messages** - Bilingual (EN/ZH) error mapping for all 18+ custom contract errors, wallet rejections, and gas failures
+- **Oracle Bridge** - On-chain oracle data preferred when wallet is connected; falls back to client-side simulation when disconnected
+- **ESLint Configuration** - Flat config with react-hooks and react-refresh plugins for code quality
 - **Crash Prevention** - ErrorBoundary wrapper, 404 page, and null guards for NFT/Collection not-found states
 - **Scroll-to-Top** - Automatic scroll reset on route navigation
 - **Centralized Mock Data** - 5 collections, 22 NFTs with attributes, offers, activity history, and rich market stats (sparklines, 24h/7d/30d changes, market cap, volume) for realistic demo presentation
@@ -48,12 +64,13 @@ A full-stack decentralized NFT marketplace built on Ethereum, supporting minting
 
 | Layer | Technology |
 |---|---|
-| Smart Contracts | Solidity 0.8.28, OpenZeppelin v5 (ERC-721, ERC-2981, ReentrancyGuard) |
-| Development & Testing | Hardhat |
+| Smart Contracts | Solidity 0.8.28, OpenZeppelin v5 (ERC-721, ERC-2981, ReentrancyGuard, Pausable) |
+| Development & Testing | Hardhat, hardhat-gas-reporter |
 | Frontend | React 18, Vite |
 | Ethereum Interaction | wagmi v2, viem |
 | Wallet UI | RainbowKit |
 | Styling | TailwindCSS, Framer Motion |
+| State Management | Zustand (persistent favorites) |
 | Decentralized Storage | IPFS / Pinata |
 
 ---
@@ -120,7 +137,7 @@ The app will be available at `http://localhost:5173`.
 
 ## Testing
 
-The smart contracts include 28 tests covering minting, listings, auctions, royalties, and edge cases.
+The smart contracts include 72 tests covering minting, listings (with expiration and price updates), auctions (with min bid increment and cancellation), royalties, pull-payment withdrawals, pausable operations, custom errors, withdrawal events, and the SimpleOracle contract (including edge cases for outlier handling, staleness thresholds, and multi-round finalization).
 
 ```bash
 cd contracts
@@ -141,7 +158,7 @@ REPORT_GAS=true npx hardhat test
 
    ```env
    SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
-   DEPLOYER_PRIVATE_KEY=your_private_key
+   PRIVATE_KEY=your_private_key
    ```
 
 2. Deploy to Sepolia:
@@ -161,21 +178,28 @@ REPORT_GAS=true npx hardhat test
 |-- contracts/                  # Hardhat project
 |   |-- contracts/
 |   |   |-- NFTCollection.sol   # ERC-721 token with ERC-2981 royalties
-|   |   `-- NFTMarketplace.sol  # Marketplace: listings + auctions
-|   |-- test/                   # Smart contract tests (28 tests)
+|   |   |-- NFTMarketplace.sol  # Marketplace: listings + auctions + Pausable + custom errors + pull-payment
+|   |   `-- SimpleOracle.sol    # On-chain multi-reporter median oracle price feed
+|   |-- test/                   # Smart contract tests (72 tests)
 |   |-- scripts/
-|   |   `-- deploy.js           # Deployment script
-|   `-- hardhat.config.js
+|   |   `-- deploy.js           # Deployment script (deploys all 3 contracts)
+|   `-- hardhat.config.js       # Includes hardhat-gas-reporter
 |-- frontend/                   # React + Vite application
 |   |-- src/
 |   |   |-- pages/              # Home, Explore, Create, NFTDetail, Profile, Activity, Collection, Market, NotFound (404)
 |   |   |-- components/
 |   |   |   |-- layout/         # Navbar (with search + user menu), Footer (multi-column), Layout, ScrollToTop
-|   |   |   `-- ui/             # Breadcrumb, NetworkBadge, TransactionModal, ErrorBoundary, LoadingSpinner, Toast
+|   |   |   |-- oracle/         # OracleDashboard, OracleAttackSimulator, OracleEducationPanel
+|   |   |   |-- nft/            # NFTCard, NFTGrid, MintForm
+|   |   |   |-- marketplace/    # ListingCard, BuyButton, AuctionCard, PlaceBidForm
+|   |   |   |-- market/         # FearGreedGauge, StatCard, TopSalesCarousel, CollectionRankings, MarketPulse, KeyInsights
+|   |   |   `-- ui/             # Breadcrumb, NetworkBadge, TransactionModal, ErrorBoundary, Skeleton, LoadingSpinner, Modal, Toast
 |   |   |-- data/               # Centralized mock data (mockData.js)
-|   |   |-- hooks/              # Custom React hooks for contract interactions
+|   |   |-- stores/             # Zustand stores (useFavoritesStore.js)
+|   |   |-- services/           # Oracle simulation engine (oracleService.js)
+|   |   |-- hooks/              # Custom React hooks (useMarketplace, useNFTCollection, useListings, useOracle, useOracleContract, etc.)
 |   |   |-- config/             # wagmi config, contract ABIs and addresses
-|   |   `-- utils/              # IPFS helpers, formatting utilities
+|   |   `-- utils/              # IPFS helpers, formatting utilities, shared animation variants, error messages
 |   `-- package.json
 |-- architecture.md             # Architecture and design documentation
 `-- business-logic.md           # Business logic and implementation notes
@@ -188,8 +212,9 @@ REPORT_GAS=true npx hardhat test
 The system is composed of two smart contracts and a React frontend:
 
 - **NFTCollection** - An ERC-721 contract extended with ERC-2981 royalty information. Handles minting and stores a creator-defined royalty percentage that is enforced on all secondary sales.
-- **NFTMarketplace** - Manages fixed-price listings and English auctions. Collects a configurable platform fee, distributes royalties to creators, and uses a pull-over-push withdrawal pattern to securely handle auction refunds.
-- **Frontend** - A single-page React application that communicates with the contracts via wagmi and viem. Wallet connectivity is provided by RainbowKit, and NFT metadata and images are stored on IPFS through Pinata.
+- **NFTMarketplace** - Manages fixed-price listings (with optional expiration) and English auctions (with 5% minimum bid increment). Uses Pausable for emergency stops, custom errors for gas savings, pull-payment for all fund distribution, and ReentrancyGuard for security.
+- **SimpleOracle** - On-chain price feed with authorized reporters, round-based median aggregation, and staleness checks.
+- **Frontend** - A single-page React application that communicates with the contracts via wagmi and viem. Wallet connectivity is provided by RainbowKit, global state by Zustand, and NFT metadata/images are stored on IPFS through Pinata. Pages show real on-chain data when wallet is connected.
 
 For detailed architecture diagrams and business logic documentation, see [architecture.md](architecture.md) and [business-logic.md](business-logic.md).
 

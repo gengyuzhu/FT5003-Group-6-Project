@@ -8,4 +8,12 @@ export default defineConfig({
       "@": "/src",
     },
   },
+  build: {
+    target: "esnext",
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: "esnext",
+    },
+  },
 });

@@ -5,13 +5,38 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
  * @title NFTMarketplace
  * @notice Decentralized NFT marketplace supporting fixed-price listings and
- *         English auctions with ERC-2981 royalty enforcement and a platform fee.
+ *         English auctions with ERC-2981 royalty enforcement, a platform fee,
+ *         pull-payment fund distribution, listing expiration, and minimum bid increments.
  */
-contract NFTMarketplace is Ownable, ReentrancyGuard {
+contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
+
+    // ── Custom Errors ────────────────────────────────────────────────────
+
+    error PriceZero();
+    error NotTokenOwner();
+    error MarketplaceNotApproved();
+    error ListingNotActive();
+    error ListingExpiredError();
+    error IncorrectPrice();
+    error SellerCannotBuy();
+    error NotTheSeller();
+    error AuctionAlreadyEnded();
+    error AuctionExpired();
+    error AuctionNotExpired();
+    error SellerCannotBid();
+    error BidBelowStartPrice();
+    error BidTooLow();
+    error BidIncrementTooLow();
+    error NothingToWithdraw();
+    error TransferFailed();
+    error FeeTooHigh();
+    error InvalidDuration();
+    error AuctionHasBids();
 
     // ── Types ───────────────────────────────────────────────────────────
 
@@ -21,6 +46,7 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
         uint256 tokenId;
         uint256 price;       // in wei
         bool active;
+        uint256 expiration;  // 0 = no expiry, otherwise unix timestamp
     }
 
     struct Auction {
@@ -38,6 +64,7 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
 
     uint256 public platformFeeBps = 250;   // 2.5 %
     uint256 public constant MAX_FEE = 1000; // 10 %
+    uint256 public constant MIN_BID_INCREMENT_BPS = 500; // 5 % minimum bid increase
 
     uint256 private _nextListingId;
     uint256 private _nextAuctionId;
@@ -45,7 +72,7 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
     mapping(uint256 => Listing)  public listings;
     mapping(uint256 => Auction)  public auctions;
 
-    // Pending withdrawals (for failed ETH transfers / outbid returns)
+    // Pending withdrawals (pull-payment for all fund distributions)
     mapping(address => uint256)  public pendingWithdrawals;
 
     // ── Events ──────────────────────────────────────────────────────────
@@ -55,7 +82,8 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
         address indexed seller,
         address nftContract,
         uint256 tokenId,
-        uint256 price
+        uint256 price,
+        uint256 expiration
     );
 
     event Sold(
@@ -89,6 +117,12 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
 
     event PlatformFeeUpdated(uint256 newFeeBps);
 
+    event Withdrawn(address indexed payee, uint256 amount);
+
+    event ListingPriceUpdated(uint256 indexed listingId, uint256 oldPrice, uint256 newPrice);
+
+    event AuctionCancelled(uint256 indexed auctionId);
+
     // ── Constructor ─────────────────────────────────────────────────────
 
     constructor() Ownable(msg.sender) {}
@@ -96,22 +130,27 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
     // ── Fixed-price listings ────────────────────────────────────────────
 
     /**
-     * @notice List an NFT for a fixed price.
-     *         Caller must have approved this contract for the token.
+     * @notice List an NFT for a fixed price with optional expiration.
+     * @param nftContract Address of the ERC-721 contract.
+     * @param tokenId     Token ID to list.
+     * @param price       Sale price in wei.
+     * @param duration    Listing duration in seconds (0 = no expiry).
      */
     function listNFT(
         address nftContract,
         uint256 tokenId,
-        uint256 price
-    ) external returns (uint256) {
-        require(price > 0, "Price must be > 0");
+        uint256 price,
+        uint256 duration
+    ) external whenNotPaused returns (uint256) {
+        if (price == 0) revert PriceZero();
         IERC721 nft = IERC721(nftContract);
-        require(nft.ownerOf(tokenId) == msg.sender, "Not the owner");
-        require(
-            nft.getApproved(tokenId) == address(this) ||
-            nft.isApprovedForAll(msg.sender, address(this)),
-            "Marketplace not approved"
-        );
+        if (nft.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
+        if (
+            nft.getApproved(tokenId) != address(this) &&
+            !nft.isApprovedForAll(msg.sender, address(this))
+        ) revert MarketplaceNotApproved();
+
+        uint256 expiration = duration == 0 ? 0 : block.timestamp + duration;
 
         uint256 listingId = _nextListingId++;
         listings[listingId] = Listing({
@@ -119,21 +158,23 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
             nftContract: nftContract,
             tokenId: tokenId,
             price: price,
-            active: true
+            active: true,
+            expiration: expiration
         });
 
-        emit Listed(listingId, msg.sender, nftContract, tokenId, price);
+        emit Listed(listingId, msg.sender, nftContract, tokenId, price, expiration);
         return listingId;
     }
 
     /**
      * @notice Buy a listed NFT. Sends exact `listing.price` as msg.value.
      */
-    function buyNFT(uint256 listingId) external payable nonReentrant {
+    function buyNFT(uint256 listingId) external payable nonReentrant whenNotPaused {
         Listing storage listing = listings[listingId];
-        require(listing.active, "Listing not active");
-        require(msg.value == listing.price, "Incorrect price");
-        require(msg.sender != listing.seller, "Seller cannot buy own NFT");
+        if (!listing.active) revert ListingNotActive();
+        if (listing.expiration != 0 && block.timestamp > listing.expiration) revert ListingExpiredError();
+        if (msg.value != listing.price) revert IncorrectPrice();
+        if (msg.sender == listing.seller) revert SellerCannotBuy();
 
         listing.active = false;
 
@@ -156,37 +197,50 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
     /**
      * @notice Cancel an active listing (seller only).
      */
-    function cancelListing(uint256 listingId) external {
+    function cancelListing(uint256 listingId) external whenNotPaused {
         Listing storage listing = listings[listingId];
-        require(listing.active, "Listing not active");
-        require(listing.seller == msg.sender, "Not the seller");
+        if (!listing.active) revert ListingNotActive();
+        if (listing.seller != msg.sender) revert NotTheSeller();
 
         listing.active = false;
         emit ListingCancelled(listingId);
+    }
+
+    /**
+     * @notice Update the price of an active listing (seller only).
+     */
+    function updateListingPrice(uint256 listingId, uint256 newPrice) external whenNotPaused {
+        Listing storage listing = listings[listingId];
+        if (!listing.active) revert ListingNotActive();
+        if (listing.seller != msg.sender) revert NotTheSeller();
+        if (newPrice == 0) revert PriceZero();
+
+        uint256 oldPrice = listing.price;
+        listing.price = newPrice;
+        emit ListingPriceUpdated(listingId, oldPrice, newPrice);
     }
 
     // ── English auctions ────────────────────────────────────────────────
 
     /**
      * @notice Create an English auction for an NFT.
-     * @param duration Auction duration in seconds.
+     * @param duration Auction duration in seconds (1 hour to 7 days).
      */
     function createAuction(
         address nftContract,
         uint256 tokenId,
         uint256 startPrice,
         uint256 duration
-    ) external returns (uint256) {
-        require(startPrice > 0, "Start price must be > 0");
-        require(duration >= 1 hours && duration <= 7 days, "Invalid duration");
+    ) external whenNotPaused returns (uint256) {
+        if (startPrice == 0) revert PriceZero();
+        if (duration < 1 hours || duration > 7 days) revert InvalidDuration();
 
         IERC721 nft = IERC721(nftContract);
-        require(nft.ownerOf(tokenId) == msg.sender, "Not the owner");
-        require(
-            nft.getApproved(tokenId) == address(this) ||
-            nft.isApprovedForAll(msg.sender, address(this)),
-            "Marketplace not approved"
-        );
+        if (nft.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
+        if (
+            nft.getApproved(tokenId) != address(this) &&
+            !nft.isApprovedForAll(msg.sender, address(this))
+        ) revert MarketplaceNotApproved();
 
         // Transfer NFT to marketplace for escrow
         nft.transferFrom(msg.sender, address(this), tokenId);
@@ -216,17 +270,20 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
 
     /**
      * @notice Place a bid on an active auction.
+     *         Minimum bid increment is 5% above the current highest bid.
      */
-    function placeBid(uint256 auctionId) external payable nonReentrant {
+    function placeBid(uint256 auctionId) external payable nonReentrant whenNotPaused {
         Auction storage auction = auctions[auctionId];
-        require(!auction.ended, "Auction ended");
-        require(block.timestamp < auction.endTime, "Auction expired");
-        require(msg.sender != auction.seller, "Seller cannot bid");
-        require(
-            msg.value >= auction.startPrice,
-            "Bid below start price"
-        );
-        require(msg.value > auction.highestBid, "Bid too low");
+        if (auction.ended) revert AuctionAlreadyEnded();
+        if (block.timestamp >= auction.endTime) revert AuctionExpired();
+        if (msg.sender == auction.seller) revert SellerCannotBid();
+        if (msg.value < auction.startPrice) revert BidBelowStartPrice();
+
+        if (auction.highestBid > 0) {
+            // Enforce minimum 5% bid increment over current highest bid
+            uint256 minBid = auction.highestBid + (auction.highestBid * MIN_BID_INCREMENT_BPS) / 10_000;
+            if (msg.value < minBid) revert BidIncrementTooLow();
+        }
 
         // Refund previous highest bidder via pull pattern
         if (auction.highestBidder != address(0)) {
@@ -244,13 +301,13 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
      */
     function endAuction(uint256 auctionId) external nonReentrant {
         Auction storage auction = auctions[auctionId];
-        require(!auction.ended, "Already ended");
-        require(block.timestamp >= auction.endTime, "Auction not yet expired");
+        if (auction.ended) revert AuctionAlreadyEnded();
+        if (block.timestamp < auction.endTime) revert AuctionNotExpired();
 
         auction.ended = true;
 
         if (auction.highestBidder != address(0)) {
-            // Distribute funds (platform fee + royalty + seller)
+            // Distribute funds via pull-payment
             _distributeFunds(
                 auction.nftContract,
                 auction.tokenId,
@@ -278,28 +335,60 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
         }
     }
 
-    // ── Withdraw (pull-payment for outbid refunds) ──────────────────────
+    /**
+     * @notice Cancel an auction with no bids (seller only).
+     *         Returns the escrowed NFT to the seller.
+     */
+    function cancelAuction(uint256 auctionId) external whenNotPaused {
+        Auction storage auction = auctions[auctionId];
+        if (auction.ended) revert AuctionAlreadyEnded();
+        if (auction.seller != msg.sender) revert NotTheSeller();
+        if (auction.highestBidder != address(0)) revert AuctionHasBids();
+
+        auction.ended = true;
+
+        // Return escrowed NFT to seller
+        IERC721(auction.nftContract).safeTransferFrom(
+            address(this),
+            auction.seller,
+            auction.tokenId
+        );
+
+        emit AuctionCancelled(auctionId);
+    }
+
+    // ── Withdraw (pull-payment for all fund distributions) ───────────────
 
     function withdraw() external nonReentrant {
         uint256 amount = pendingWithdrawals[msg.sender];
-        require(amount > 0, "Nothing to withdraw");
+        if (amount == 0) revert NothingToWithdraw();
         pendingWithdrawals[msg.sender] = 0;
         (bool ok, ) = payable(msg.sender).call{value: amount}("");
-        require(ok, "Transfer failed");
+        if (!ok) revert TransferFailed();
+        emit Withdrawn(msg.sender, amount);
     }
 
     // ── Admin ───────────────────────────────────────────────────────────
 
     function setPlatformFee(uint256 feeBps) external onlyOwner {
-        require(feeBps <= MAX_FEE, "Fee too high");
+        if (feeBps > MAX_FEE) revert FeeTooHigh();
         platformFeeBps = feeBps;
         emit PlatformFeeUpdated(feeBps);
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     // ── Internals ───────────────────────────────────────────────────────
 
     /**
-     * @dev Distribute sale proceeds: platform fee, royalty, remainder to seller.
+     * @dev Distribute sale proceeds via pull-payment pattern:
+     *      platform fee, royalty, and remainder accumulate in pendingWithdrawals.
      */
     function _distributeFunds(
         address nftContract,
@@ -322,25 +411,24 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
             royaltyAmount = amount;
         } catch {}
 
-        // 3. Seller gets the rest
+        // 3. Guard: if royalty is unreasonably large, ignore it
+        if (platformFee + royaltyAmount > salePrice) {
+            royaltyAmount = 0;
+            royaltyReceiver = address(0);
+        }
+
+        // 4. Seller gets the rest
         uint256 sellerProceeds = salePrice - platformFee - royaltyAmount;
 
-        // Transfer platform fee to owner
+        // Accumulate into pendingWithdrawals (pull-payment)
         if (platformFee > 0) {
-            (bool ok1, ) = payable(owner()).call{value: platformFee}("");
-            require(ok1, "Platform fee transfer failed");
+            pendingWithdrawals[owner()] += platformFee;
         }
-
-        // Transfer royalty
         if (royaltyAmount > 0 && royaltyReceiver != address(0)) {
-            (bool ok2, ) = payable(royaltyReceiver).call{value: royaltyAmount}("");
-            require(ok2, "Royalty transfer failed");
+            pendingWithdrawals[royaltyReceiver] += royaltyAmount;
         }
-
-        // Transfer to seller
         if (sellerProceeds > 0) {
-            (bool ok3, ) = payable(seller).call{value: sellerProceeds}("");
-            require(ok3, "Seller transfer failed");
+            pendingWithdrawals[seller] += sellerProceeds;
         }
     }
 
@@ -352,5 +440,10 @@ contract NFTMarketplace is Ownable, ReentrancyGuard {
 
     function getAuctionCount() external view returns (uint256) {
         return _nextAuctionId;
+    }
+
+    function isListingExpired(uint256 listingId) external view returns (bool) {
+        Listing storage l = listings[listingId];
+        return l.expiration != 0 && block.timestamp > l.expiration;
     }
 }
