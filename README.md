@@ -6,7 +6,7 @@
 [![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A full-stack decentralized NFT marketplace built on Ethereum, supporting minting, fixed-price listings, English auctions, and on-chain royalty enforcement. Developed as a group project for **FT5003 Blockchain Innovations** at the National University of Singapore (NUS).
+A full-stack decentralized NFT marketplace built on Ethereum, supporting minting, fixed-price listings, English auctions, Dutch auctions, on-chain offers, P2P NFT swaps, and on-chain royalty enforcement. Developed as a group project for **FT5003 Blockchain Innovations** at the National University of Singapore (NUS).
 
 ---
 
@@ -14,7 +14,8 @@ A full-stack decentralized NFT marketplace built on Ethereum, supporting minting
 
 ### Smart Contract
 - **Mint NFTs** - Create ERC-721 tokens with metadata stored on IPFS via Pinata
-- **Fixed-Price Listings** - List NFTs at a set price with optional expiration duration; allow instant purchases
+- **USD-Denominated Listings** - Sellers list NFTs in USD for price stability; the on-chain oracle converts to ETH at purchase time, protecting traditional artists from crypto volatility
+- **Fixed-Price Listings** - List NFTs at a set USD price with optional expiration duration; allow instant purchases with oracle-based ETH conversion
 - **English Auctions** - Time-bound auctions with real-time countdown timers, competitive bidding, and 5% minimum bid increment
 - **Royalty Enforcement** - ERC-2981 royalties applied automatically on every secondary sale
 - **Platform Fee** - Configurable marketplace fee (default 2.5%) collected on each transaction
@@ -22,8 +23,14 @@ A full-stack decentralized NFT marketplace built on Ethereum, supporting minting
 - **Pausable** - Contract owner can pause/unpause all marketplace operations via OpenZeppelin Pausable
 - **Update Listing Price** - Sellers can update the price of active listings on-chain
 - **Cancel Auction** - Sellers can cancel auctions with no bids and reclaim their escrowed NFT
-- **Custom Errors** - 18 gas-efficient custom errors replacing `require()` strings for cheaper reverts
-- **On-Chain Oracle (SimpleOracle)** - Multi-reporter median-based price feed contract with authorized reporters, round-based aggregation, staleness checks, and custom errors
+- **Batch Listing** - `batchListNFT` allows sellers to list multiple NFTs in a single transaction (up to 20 at once); not supported on OpenSea, making this a platform differentiator
+- **Anti-Snipe Auction Extension** - Any bid placed within the last 5 minutes of an auction automatically extends the end time by 5 minutes, preventing last-second sniping; can extend multiple times if snipe bids keep arriving
+- **Dutch Auction (Declining Price)** - USD-denominated declining-price auction; price decreases linearly from start to end price over the duration; first buyer wins at the current oracle-converted price; NFT escrowed in marketplace; excess ETH refunded via pull-payment; commonly used in IPOs and bond markets — OpenSea does not have this
+- **On-Chain Offer System** - Any buyer can make an ETH-escrowed offer on any NFT (even unlisted ones); NFT owner can accept, transferring the NFT and distributing funds via `_distributeFunds`; buyer can cancel and reclaim ETH; multiple offers can coexist per NFT; fully transparent on-chain (unlike OpenSea's off-chain Seaport orders)
+- **P2P NFT Swaps (Atomic Bartering)** - Proposer specifies counterparty, both NFT contracts + token IDs, duration, and optional ETH top-up; proposer's NFT is escrowed on proposal; counterparty accepts to atomically swap both NFTs with ETH top-up distributed via `_distributeFunds` (platform fee + royalty); proposer can cancel to reclaim NFT + ETH; new errors: `SwapNotActive`, `NotCounterparty`, `SwapExpired`; new events: `SwapProposed`, `SwapExecuted`, `SwapCancelled`
+- **Custom Errors** - 31 gas-efficient custom errors replacing `require()` strings for cheaper reverts
+- **Oracle-Marketplace Integration** - Marketplace reads ETH/USD price from SimpleOracle at purchase time; 2% slippage tolerance protects buyers; excess ETH refunded via pull-payment
+- **On-Chain Oracle (SimpleOracle)** - Multi-reporter median-based price feed contract with authorized reporters, round-based aggregation, staleness checks, 50% price deviation protection, force-advance round recovery, on-chain price history (last 10 finalized rounds), emergency price override (`emergencySetPrice`), per-reporter submission tracking, on-chain volatility calculation (`getVolatility`), TWAP (time-weighted average price from circular buffer for manipulation-resistant pricing), and configurable `minRoundInterval` for flash-loan attack prevention (reverts `RoundTooFrequent` if rounds finalize too rapidly)
 
 ### Frontend
 - **Collection Pages** - Dedicated pages for each NFT collection with banner, stats (items, owners, floor price, volume), and NFT grid
@@ -51,7 +58,7 @@ A full-stack decentralized NFT marketplace built on Ethereum, supporting minting
 - **Interactive NFT Actions** - Share (copy link), external link (IPFS), and favorite buttons with toast feedback
 - **Navbar Search** - Global search bar that navigates to Explore with pre-filled query
 - **Skeleton Loading** - Reusable skeleton components (NFTCard, NFTDetail, Profile, Market) for smooth loading states
-- **Friendly Error Messages** - Bilingual (EN/ZH) error mapping for all 18+ custom contract errors, wallet rejections, and gas failures
+- **Friendly Error Messages** - Bilingual (EN/ZH) error mapping for all 37+ custom contract errors, wallet rejections, and gas failures
 - **Oracle Bridge** - On-chain oracle data preferred when wallet is connected; falls back to client-side simulation when disconnected
 - **ESLint Configuration** - Flat config with react-hooks and react-refresh plugins for code quality
 - **Crash Prevention** - ErrorBoundary wrapper, 404 page, and null guards for NFT/Collection not-found states
@@ -137,7 +144,7 @@ The app will be available at `http://localhost:5173`.
 
 ## Testing
 
-The smart contracts include 72 tests covering minting, listings (with expiration and price updates), auctions (with min bid increment and cancellation), royalties, pull-payment withdrawals, pausable operations, custom errors, withdrawal events, and the SimpleOracle contract (including edge cases for outlier handling, staleness thresholds, and multi-round finalization).
+The smart contracts include 158 tests covering minting, USD-denominated listings (with oracle-based ETH conversion, expiration, and price updates), batch listing (up to 20 NFTs per transaction), English auctions (with min bid increment, cancellation, and anti-snipe extension), Dutch auctions (declining-price USD-denominated, escrow, cancellation), on-chain offers (make, accept, cancel), P2P NFT swaps (propose, accept, cancel, expiration, atomic bartering with ETH top-up), royalties, pull-payment withdrawals, pausable operations, custom errors, withdrawal events, oracle integration (stale price, excess refund, slippage tolerance, price view, price changes), and the SimpleOracle contract (including price history, TWAP calculation, flash-loan prevention via minRoundInterval, emergency price override, volatility calculation, reporter submission tracking, edge cases for outlier handling, staleness thresholds, and multi-round finalization).
 
 ```bash
 cd contracts
@@ -178,9 +185,9 @@ REPORT_GAS=true npx hardhat test
 |-- contracts/                  # Hardhat project
 |   |-- contracts/
 |   |   |-- NFTCollection.sol   # ERC-721 token with ERC-2981 royalties
-|   |   |-- NFTMarketplace.sol  # Marketplace: listings + auctions + Pausable + custom errors + pull-payment
+|   |   |-- NFTMarketplace.sol  # Marketplace: listings + auctions + Dutch auctions + offers + P2P swaps + Pausable + custom errors + pull-payment
 |   |   `-- SimpleOracle.sol    # On-chain multi-reporter median oracle price feed
-|   |-- test/                   # Smart contract tests (72 tests)
+|   |-- test/                   # Smart contract tests (158 tests)
 |   |-- scripts/
 |   |   `-- deploy.js           # Deployment script (deploys all 3 contracts)
 |   `-- hardhat.config.js       # Includes hardhat-gas-reporter
@@ -212,7 +219,7 @@ REPORT_GAS=true npx hardhat test
 The system is composed of two smart contracts and a React frontend:
 
 - **NFTCollection** - An ERC-721 contract extended with ERC-2981 royalty information. Handles minting and stores a creator-defined royalty percentage that is enforced on all secondary sales.
-- **NFTMarketplace** - Manages fixed-price listings (with optional expiration) and English auctions (with 5% minimum bid increment). Uses Pausable for emergency stops, custom errors for gas savings, pull-payment for all fund distribution, and ReentrancyGuard for security.
+- **NFTMarketplace** - Manages fixed-price listings (with optional expiration), English auctions (with 5% minimum bid increment and anti-snipe extension), Dutch auctions (declining USD price via oracle), on-chain offers (ETH escrowed), and P2P NFT swaps (atomic bartering with optional ETH top-up). Uses Pausable for emergency stops, 31 custom errors for gas savings, pull-payment for all fund distribution, and ReentrancyGuard for security. Supports 6 sale mechanisms vs OpenSea's 2.
 - **SimpleOracle** - On-chain price feed with authorized reporters, round-based median aggregation, and staleness checks.
 - **Frontend** - A single-page React application that communicates with the contracts via wagmi and viem. Wallet connectivity is provided by RainbowKit, global state by Zustand, and NFT metadata/images are stored on IPFS through Pinata. Pages show real on-chain data when wallet is connected.
 

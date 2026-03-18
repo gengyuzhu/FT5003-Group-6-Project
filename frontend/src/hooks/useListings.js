@@ -31,13 +31,14 @@ export function useAllListings() {
   const listings = (data || [])
     .map((result, i) => {
       if (result.status !== "success" || !result.result) return null;
-      const [seller, nftContract, tokenId, price, active, expiration] = result.result;
+      const [seller, nftContract, tokenId, priceUsdCents, active, expiration] = result.result;
       return {
         listingId: i,
         seller,
         nftContract,
         tokenId: Number(tokenId),
-        price,
+        priceUsdCents,                                      // BigInt: USD cents on-chain
+        priceUsd: Number(priceUsdCents) / 100,              // JS number: e.g. 2091.00
         active,
         expiration: Number(expiration),
       };

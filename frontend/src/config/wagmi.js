@@ -4,10 +4,10 @@ import { hardhat, sepolia } from "wagmi/chains";
 
 export const config = getDefaultConfig({
   appName: "NFT Marketplace",
-  projectId: "YOUR_WALLETCONNECT_PROJECT_ID", // Get from https://cloud.walletconnect.com
+  projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "YOUR_WALLETCONNECT_PROJECT_ID",
   chains: [hardhat, sepolia],
   transports: {
     [hardhat.id]: http("http://127.0.0.1:8545"),
-    [sepolia.id]: http(),
+    [sepolia.id]: http(import.meta.env.VITE_SEPOLIA_RPC_URL),
   },
 });

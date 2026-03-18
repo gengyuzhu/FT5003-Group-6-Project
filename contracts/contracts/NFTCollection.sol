@@ -5,18 +5,17 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/token/common/ERC2981.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title NFTCollection
  * @notice ERC-721 NFT contract with metadata storage, enumeration, and ERC-2981 royalties.
  *         Anyone can mint. The creator sets a per-token royalty fee (basis points).
  */
-contract NFTCollection is ERC721, ERC721URIStorage, ERC721Enumerable, ERC2981, Ownable {
+contract NFTCollection is ERC721, ERC721URIStorage, ERC721Enumerable, ERC2981 {
 
     error RoyaltyFeeTooHigh();
 
-    uint256 private _nextTokenId;
+    uint256 private _nextTokenId = 1;
 
     uint96 public constant MAX_ROYALTY_FEE = 1000; // 10 %
 
@@ -27,7 +26,7 @@ contract NFTCollection is ERC721, ERC721URIStorage, ERC721Enumerable, ERC2981, O
         uint96 royaltyFee
     );
 
-    constructor() ERC721("NUS NFT Collection", "NUSNFT") Ownable(msg.sender) {}
+    constructor() ERC721("NUS NFT Collection", "NUSNFT") {}
 
     /**
      * @notice Mint a new NFT with metadata URI and royalty info.

@@ -26,6 +26,28 @@ async function main() {
   const oracleAddress = await oracle.getAddress();
   console.log("SimpleOracle deployed to:", oracleAddress);
 
+  // Link oracle to marketplace (required for USD→ETH price conversion)
+  const setOracleTx = await marketplace.setOracle(oracleAddress);
+  await setOracleTx.wait();
+  console.log("Oracle linked to marketplace (tx confirmed)");
+
+  // Verify contracts on Etherscan (Sepolia only)
+  if (hre.network.name === "sepolia") {
+    console.log("\nVerifying contracts on Etherscan...");
+    try {
+      await hre.run("verify:verify", { address: nftAddress, constructorArguments: [] });
+      console.log("NFTCollection verified");
+    } catch (e) { console.log("NFTCollection verification:", e.message); }
+    try {
+      await hre.run("verify:verify", { address: marketplaceAddress, constructorArguments: [] });
+      console.log("NFTMarketplace verified");
+    } catch (e) { console.log("NFTMarketplace verification:", e.message); }
+    try {
+      await hre.run("verify:verify", { address: oracleAddress, constructorArguments: [] });
+      console.log("SimpleOracle verified");
+    } catch (e) { console.log("SimpleOracle verification:", e.message); }
+  }
+
   // Write addresses to a JSON file for the frontend
   const fs = require("fs");
   const path = require("path");
@@ -39,6 +61,16 @@ async function main() {
     deployer: deployer.address,
     timestamp: new Date().toISOString(),
   };
+
+  // Append to deployment history log
+  const historyPath = path.join(__dirname, "..", "deployments.log");
+  const logEntry = `[${addresses.timestamp}] ${hre.network.name} (chainId: ${addresses.chainId})\n` +
+    `  NFTCollection: ${nftAddress}\n` +
+    `  NFTMarketplace: ${marketplaceAddress}\n` +
+    `  SimpleOracle: ${oracleAddress}\n` +
+    `  Deployer: ${deployer.address}\n\n`;
+  fs.appendFileSync(historyPath, logEntry);
+  console.log("Deployment logged to deployments.log");
 
   const outDir = path.join(__dirname, "..", "..", "frontend", "src", "config");
   fs.mkdirSync(outDir, { recursive: true });

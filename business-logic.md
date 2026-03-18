@@ -6,6 +6,9 @@
 
 ## 1. Business Model
 
+### Target Market — Traditional Artists
+Unlike OpenSea and other existing marketplaces, this platform specifically targets **traditional artists** entering the NFT space for the first time. These artists think in fiat currencies (USD), not ETH. By allowing sellers to list NFTs in USD and using an on-chain oracle to convert to ETH at purchase time, the platform eliminates crypto-volatility risk for sellers and provides a familiar pricing experience.
+
 ### Revenue Model
 - **Platform Fee**: 2.5% on every sale (configurable by contract owner, max 10%)
 - **Creator Royalties**: 0–10% on secondary sales, enforced via ERC-2981
@@ -15,8 +18,8 @@
 | Role | Actions |
 |------|---------|
 | **Creator** | Mint NFTs, set royalties, earn on resales |
-| **Seller** | List NFTs (fixed price or auction), cancel listings |
-| **Buyer** | Buy listed NFTs, place bids on auctions |
+| **Seller** | List NFTs (fixed price, English auction, or Dutch auction), cancel listings, accept offers, propose/cancel swaps |
+| **Buyer** | Buy listed NFTs, place bids on auctions, buy Dutch auctions, make/cancel offers, accept swaps |
 | **Platform Owner** | Set platform fee, withdraw accumulated fees |
 
 ---
@@ -36,18 +39,19 @@
 **Technical Details:**
 - `tokenURI` points to IPFS JSON metadata
 - `royaltyFee` is in basis points (500 = 5%)
-- Token ID auto-increments from 0
+- Token ID auto-increments from 1
 - Gas cost: ~150,000 gas
 
-### 2.2 Fixed-Price Listing
+### 2.2 Fixed-Price Listing (USD-Denominated)
 
-**Business Rule**: Only the NFT owner can list. Must approve marketplace first.
+**Business Rule**: Only the NFT owner can list. Must approve marketplace first. Prices are in USD cents for price stability — oracle converts to ETH at purchase time.
 
 1. Seller approves marketplace contract for the token
-2. Seller calls `listNFT(nftContract, tokenId, price, duration)`
+2. Seller calls `listNFT(nftContract, tokenId, priceUsdCents, duration)`
+   - `priceUsdCents` is in USD cents (e.g., 10000 = $100.00)
    - `duration = 0` means no expiry
    - `duration > 0` sets `expiration = block.timestamp + duration`
-3. Listing is stored on-chain with `active = true` and optional expiration
+3. Listing is stored on-chain with `active = true`, `priceUsdCents`, and optional expiration
 4. NFT remains in seller's wallet (not escrowed)
 
 **Why no escrow for listings?**
@@ -55,26 +59,34 @@
 - Seller can display the NFT in their wallet
 - Marketplace checks ownership at buy time
 
-### 2.3 Buying
+### 2.3 Buying (Oracle-Based ETH Conversion)
 
-**Business Rule**: Buyer sends exact listing price. Cannot buy own NFT.
+**Business Rule**: Buyer sends ETH equivalent to the USD listing price (converted via oracle at purchase time). 2% slippage tolerance. Cannot buy own NFT.
 
-1. Buyer calls `buyNFT(listingId)` with exact ETH amount
-2. Contract checks listing has not expired (if expiration > 0)
-3. Contract distributes funds via pull-payment (`_distributeFunds`):
+**Full Flow**: Seller lists in USD → Oracle provides ETH/USD rate → Buyer pays in ETH → Smart contract settles
+
+1. Frontend calls `getListingPriceInWei(listingId)` to get `requiredWei` and `maxWei` (= requiredWei + 2% slippage)
+2. Buyer calls `buyNFT(listingId)` with `value = maxWei`
+3. Contract calls `_getRequiredWei(priceUsdCents)`:
+   - Reads oracle: `(oraclePrice, timestamp) = oracle.getLatestPrice()`
+   - Converts (rounds up): `requiredWei = ceil(priceUsdCents × 1e24 / oraclePrice)`
+4. Contract checks: `requiredWei ≤ msg.value ≤ requiredWei + 2%` (reverts `InsufficientPayment` or `ExcessivePayment`)
+5. Contract distributes `requiredWei` via pull-payment (`_distributeFunds`):
    - 2.5% → `pendingWithdrawals[platformOwner]`
    - Royalty % → `pendingWithdrawals[originalCreator]`
    - Remainder → `pendingWithdrawals[seller]`
-4. NFT is transferred from seller to buyer
-5. Listing marked as inactive
-6. All recipients call `withdraw()` to claim their ETH
+6. Excess ETH (msg.value - requiredWei) → `pendingWithdrawals[buyer]`
+7. NFT is transferred from seller to buyer
+8. Listing marked as inactive
+9. All recipients call `withdraw()` to claim their ETH
 
-**Fund Distribution Example** (1 ETH sale, 5% royalty):
+**Fund Distribution Example** ($2091 listing at $2091/ETH rate, 5% royalty):
 ```
-Total:    1.000 ETH
+Listing:  $2,091.00 USD = 1.000 ETH (at oracle rate)
 Platform: 0.025 ETH (2.5%)
 Royalty:  0.050 ETH (5.0%)
 Seller:   0.925 ETH (92.5%)
+Buyer refund: excess ETH above requiredWei (if any)
 ```
 
 ### 2.4 English Auction
@@ -104,11 +116,177 @@ Seller:   0.925 ETH (92.5%)
 
 ### 2.5 Cancellation
 
-**Business Rule**: Only the seller can cancel an active listing. Auctions can only be cancelled by the seller if no bids have been placed (to protect bidders). The escrowed NFT is returned to the seller on cancellation.
+**Business Rule**: Only the seller can cancel an active listing. Auctions can only be cancelled by the seller if no bids have been placed (to protect bidders). The escrowed NFT is returned to the seller on cancellation. Note: `cancelAuction` works even when the marketplace is paused, so sellers can always recover their NFTs in an emergency.
 
 ### 2.6 Update Listing Price
 
-**Business Rule**: Only the seller can update the price of an active listing to a new non-zero value. Emits a `ListingPriceUpdated` event.
+**Business Rule**: Only the seller can update the USD price of an active listing to a new non-zero value. Emits a `ListingPriceUpdated` event with old and new prices in USD cents.
+
+### 2.7 Batch Listing
+
+**Business Rule**: A seller can list up to `MAX_BATCH_SIZE` (20) NFTs in a single transaction. All four input arrays (NFT contracts, token IDs, USD prices, durations) must have equal length; mismatches revert with `ArrayLengthMismatch()`. Exceeding 20 items reverts with `BatchTooLarge()`.
+
+1. Seller approves the marketplace for each token to be listed
+2. Seller calls `batchListNFT(nftContracts[], tokenIds[], pricesUsdCents[], durations[])`
+3. The function iterates the arrays and calls the internal `_createListing()` helper for each entry — the same helper used by the single-item `listNFT()`, keeping logic consistent and auditable
+4. All created listing IDs are collected and emitted in a single `BatchListed(listingIds, seller)` event
+5. Returns the array of new listing IDs
+
+**Why batch listing matters**: Listing individual NFTs one by one requires N separate transactions, N wallet confirmations, and N gas payments. Batch listing collapses this into one transaction, dramatically reducing cost and friction for sellers with large inventories. OpenSea does not offer on-chain batch listing; this is a deliberate platform differentiator.
+
+**New custom errors introduced**: `ArrayLengthMismatch()`, `BatchTooLarge()`
+
+### 2.8 Anti-Snipe Auction Extension
+
+**Business Rule**: To prevent last-second bid sniping (common on OpenSea and eBay-style auctions), any bid placed within `ANTI_SNIPE_DURATION` (5 minutes) of the auction end time automatically extends the auction by 5 minutes.
+
+**Detection and extension flow** (within `placeBid`):
+1. Bidder places a valid bid (passes all amount and timing checks)
+2. Contract checks: `block.timestamp >= auction.endTime - ANTI_SNIPE_DURATION`
+3. If true: `auction.endTime += ANTI_SNIPE_DURATION`; emits `AuctionExtended(auctionId, newEndTime)`
+4. The extension can repeat as many times as snipe bids keep arriving — there is no cap on total extensions
+
+**Why this matters**: Without anti-snipe protection, bidders can watch an auction countdown and submit a winning bid in the final seconds, leaving other participants no time to respond. The 5-minute rolling extension ensures all interested bidders have a fair window after every late bid. The `AuctionExtended` event allows frontends and off-chain indexers to update countdown timers in real time.
+
+### 2.9 Platform Differentiators vs OpenSea
+
+The marketplace supports **6 sale mechanisms** compared to OpenSea's 2 (fixed-price + English auction):
+
+| Mechanism | This Marketplace | OpenSea |
+|-----------|:---------------:|:-------:|
+| Fixed-Price Listing (USD via oracle) | Yes | Partial (ETH/USD, no on-chain oracle) |
+| English Auction (anti-snipe) | Yes | Yes |
+| Dutch Auction (declining price, USD via oracle) | Yes | No |
+| On-Chain Offers (ETH escrowed, fully transparent) | Yes | No (off-chain Seaport orders) |
+| P2P NFT Swaps (atomic bartering + ETH top-up) | Yes | No |
+| Batch Listing (on-chain, up to 20 NFTs) | Yes | No |
+
+### 2.10 Oracle Price History
+
+**Business Rule**: `SimpleOracle` now records the last 10 finalized round prices on-chain, giving buyers and sellers transparent access to recent price trends without relying on off-chain indexers.
+
+**Implementation:**
+- A circular `priceHistory` buffer (capped at `MAX_HISTORY = 10`) is maintained in contract storage
+- Each time a round finalizes (i.e., `MIN_REPORTERS` have submitted and the median is computed), the finalized price and its timestamp are appended to the buffer, overwriting the oldest entry when the buffer is full
+- `getPriceHistory()` returns the full array of stored `PriceEntry` structs (price + timestamp)
+- `getPriceHistoryLength()` returns the count of populated entries (up to 10)
+
+**Value for users**: Sellers can verify the oracle has been stable before listing at a specific USD price. Buyers can see whether the current ETH/USD rate is an outlier or within a normal recent range, making it easier to decide whether to buy now or wait.
+
+### 2.11 Dutch Auction (Declining Price, USD-Denominated)
+
+**Business Rule**: A seller creates a Dutch auction with a start and end USD price over a fixed duration. The price decreases linearly over time. The first buyer to transact wins at the current oracle-converted price. Commonly used in IPOs and bond markets; OpenSea does not offer this mechanism.
+
+**Creating:**
+1. Seller approves marketplace for the token
+2. Seller calls `createDutchAuction(nftContract, tokenId, startPriceUsdCents, endPriceUsdCents, duration)`
+   - `endPriceUsdCents` must be less than `startPriceUsdCents` (reverts `EndPriceTooHigh` otherwise)
+   - NFT is transferred to marketplace (escrowed)
+3. `DutchAuctionCreated` event emitted
+
+**Current Price Calculation:**
+```
+elapsed    = block.timestamp - startTime
+duration   = endTime - startTime
+priceRange = startPriceUsdCents - endPriceUsdCents
+currentUsdCents = startPriceUsdCents - (priceRange * elapsed / duration)
+```
+Oracle converts `currentUsdCents` → ETH via `_getRequiredWei()`.
+
+**Buying:**
+1. Frontend calls `getDutchAuctionPriceInWei(id)` to get the current required ETH
+2. Buyer calls `buyDutchAuction(id)` with sufficient ETH
+3. No `ExcessivePayment` check is enforced — buyers are expected to send more than the exact amount as the price declines; excess is refunded via `pendingWithdrawals[buyer]`
+4. `_distributeFunds` distributes proceeds (platform fee, royalty, seller payment)
+5. NFT transferred to buyer; auction marked `sold = true`
+6. `DutchAuctionSold` event emitted
+
+**Cancelling:**
+- Seller can cancel before any purchase: `cancelDutchAuction(id)` returns the escrowed NFT to the seller and emits `DutchAuctionCancelled`
+- Reverts with `DutchAuctionEnded` if the auction has already sold or expired
+
+**New errors**: `EndPriceTooHigh()`, `DutchAuctionEnded()`
+**New events**: `DutchAuctionCreated`, `DutchAuctionSold`, `DutchAuctionCancelled`
+
+### 2.12 On-Chain Offer System (ETH Escrowed)
+
+**Business Rule**: Any buyer can make a binding ETH offer on any NFT — whether listed, in auction, or unlisted. ETH is locked on-chain immediately, making every offer fully transparent and enforceable. Unlike OpenSea's off-chain Seaport orders, no off-chain signing is required and funds are never hidden.
+
+**Making an Offer:**
+1. Buyer calls `makeOffer(nftContract, tokenId, expiration)` with ETH attached
+2. ETH is held in contract storage (tracked via the `Offer` struct)
+3. `OfferMade` event emitted; multiple offers can exist for the same NFT
+
+**Accepting an Offer:**
+1. NFT owner calls `acceptOffer(offerId)`
+2. Contract validates offer is active and not expired (reverts `OfferExpired` if past expiration)
+3. `_distributeFunds` distributes `offer.amount` (platform fee, royalty, seller payment)
+4. NFT transferred from owner to buyer via `safeTransferFrom`
+5. Offer marked inactive; `OfferAccepted` event emitted
+
+**Cancelling an Offer:**
+1. Buyer calls `cancelOffer(offerId)`
+2. Contract validates offer is active (reverts `OfferNotActive` otherwise)
+3. `offer.amount` credited to `pendingWithdrawals[buyer]`; buyer calls `withdraw()` to reclaim ETH
+4. `OfferCancelled` event emitted
+
+**New errors**: `OfferNotActive()`, `OfferExpired()`
+**New events**: `OfferMade`, `OfferAccepted`, `OfferCancelled`
+
+### 2.13 P2P NFT Swaps (Atomic Bartering)
+
+**Business Rule**: Two users can propose and execute an atomic swap of NFTs directly, optionally with an ETH "sweetener" to compensate for value differences. This is the oldest form of trade — bartering — reinvented on blockchain with atomic execution guarantees.
+
+**Propose Swap Flow:**
+1. Proposer specifies: counterparty address, their own NFT (contract + tokenId), counterparty's desired NFT (contract + tokenId), duration, and optional ETH top-up
+2. Proposer's NFT is transferred (escrowed) into the marketplace contract
+3. Any ETH sent (top-up) is held in the contract
+4. `SwapProposed` event emitted
+
+**Accept Swap Flow:**
+1. Counterparty calls `acceptSwap(swapId)` — only the designated counterparty can accept
+2. Both NFTs are swapped atomically: proposer's NFT → counterparty, counterparty's NFT → proposer
+3. If ETH top-up exists, funds are distributed via `_distributeFunds` using the counterparty's NFT for royalty calculation (platform fee → owner, royalty → creator, remainder → counterparty)
+4. `SwapExecuted` event emitted
+
+**Cancel Swap Flow:**
+1. Only the proposer can cancel an active swap
+2. Proposer's escrowed NFT is returned
+3. Any ETH top-up is refunded via `pendingWithdrawals`
+4. `SwapCancelled` event emitted
+
+**New errors**: `SwapNotActive()`, `NotCounterparty()`, `SwapExpired()`
+**New events**: `SwapProposed`, `SwapExecuted`, `SwapCancelled`
+
+### 2.14 Oracle Advanced Features
+
+**Emergency Price Override:**
+- `emergencySetPrice(price)` [onlyOwner] — sets the oracle price instantly, bypassing reporter consensus and the normal round process
+- `emergencyPriceActive` bool is set to `true`; subsequent normal round finalization clears it, restoring decentralized aggregation
+- `EmergencyPriceSet` event emitted
+- Use case: oracle reporters become unavailable and the marketplace would otherwise be stuck with a stale price
+
+**Reporter Submission Tracking:**
+- `reporterSubmissions` mapping records the cumulative number of rounds each reporter has participated in
+- Incremented on each successful `submitPrice()` call
+- Provides an on-chain audit trail for reporter activity
+
+**On-Chain Volatility:**
+- `getVolatility()` view function computes price volatility from the stored `priceHistory` buffer: `(max - min) * 10000 / avg`, returned in basis points
+- A result of `500` means the price range over the history window is 5% of the average
+- Useful for sellers assessing whether the oracle has been stable before listing, and for buyers checking if the current rate is an outlier
+
+**TWAP (Time-Weighted Average Price):**
+- `getTWAP()` calculates a time-weighted average from the `priceHistory` circular buffer
+- Each price is weighted by its duration (time interval until the next price update); the last entry is weighted until `block.timestamp`
+- More manipulation-resistant than spot price because transient price spikes have minimal impact on the time-weighted average
+- Formula: `twapPrice = Σ(price_i × duration_i) / Σ(duration_i)`
+- Reverts with `NoPrice` if no price history exists; returns the single price if only one entry
+
+**Flash-Loan Attack Prevention:**
+- `minRoundInterval` is an owner-settable minimum interval between round finalizations (default 0 = disabled)
+- `setMinRoundInterval(seconds)` configures the guard; `_finalizeRound` checks the interval and reverts with `RoundTooFrequent` if rounds are finalized too rapidly
+- Prevents same-block or rapid-fire price manipulation via flash loans, where an attacker could submit multiple prices within a single transaction to manipulate the oracle price
 
 ---
 
@@ -126,7 +304,8 @@ Seller:   0.925 ETH (92.5%)
 | Access Control | Ownable |
 | Security | ReentrancyGuard |
 | Emergency Stop | Pausable |
-| Error Handling | 18+ Custom Errors (gas-efficient) |
+| Error Handling | 27 Custom Errors (gas-efficient) |
+| Oracle Integration | ISimpleOracle interface for USD→ETH conversion |
 
 ### 3.2 Gas Optimization
 
@@ -171,7 +350,7 @@ The Profile page serves as the user's dashboard:
   - **Created**: Grid of NFTs minted by the user
   - **Favorited**: Grid of favorited NFTs
   - **Activity**: User's transaction history (mints, listings, sales)
-- **List for Sale Modal**: Price input (ETH), listing type toggle (Fixed Price / Auction), and confirmation flow triggering the TransactionModal
+- **List for Sale Modal**: Price input (USD), listing type toggle (Fixed Price / Auction), and confirmation flow triggering the TransactionModal
 
 ### 4.2 Wallet Integration
 
@@ -190,6 +369,16 @@ useWriteContract → User signs in wallet → useWaitForTransactionReceipt → U
 Custom hooks encapsulate this:
 - `useMintNFT()` → returns `{ mint, isPending, isConfirming, isSuccess }`
 - `useBuyNFT()` → returns `{ buy, isPending, isConfirming, isSuccess }`
+- `useBatchListNFT()` → returns `{ batchList, isPending, isConfirming, isSuccess }`
+- `useCreateDutchAuction()` → returns `{ createDutchAuction, isPending, isConfirming, isSuccess }`
+- `useBuyDutchAuction()` → returns `{ buyDutchAuction, isPending, isConfirming, isSuccess }`
+- `useGetDutchAuctionPriceInWei()` → returns current ETH price for a Dutch auction
+- `useCancelDutchAuction()` → returns `{ cancelDutchAuction, isPending, isConfirming, isSuccess }`
+- `useDutchAuctionCount()` → returns total Dutch auction count
+- `useMakeOffer()` → returns `{ makeOffer, isPending, isConfirming, isSuccess }`
+- `useAcceptOffer()` → returns `{ acceptOffer, isPending, isConfirming, isSuccess }`
+- `useCancelOffer()` → returns `{ cancelOffer, isPending, isConfirming, isSuccess }`
+- `useOfferCount()` → returns total offer count
 - etc.
 
 ### 4.4 IPFS Integration
@@ -207,7 +396,7 @@ Custom hooks encapsulate this:
   - Synced across NFTDetail (heart button) and Profile (Favorited tab)
 - **On-chain data integration**: Pages use `useAccount()` to detect wallet connection; when connected, hooks like `useAllListings()` and `useUserNFTs()` fetch real blockchain data via multicall; when disconnected, mock data is shown as fallback
 - **Skeleton loading**: Reusable skeleton components (`NFTCardSkeleton`, `NFTDetailSkeleton`, `ProfileSkeleton`, `MarketSkeleton`) provide shimmer loading states while blockchain data is fetched
-- **Friendly error messages**: `errorMessages.js` maps all 18+ custom contract errors and common wallet/transaction errors to bilingual (EN/ZH) user-friendly messages displayed in the TransactionModal
+- **Friendly error messages**: `errorMessages.js` maps all 37+ custom contract errors and common wallet/transaction errors to bilingual (EN/ZH) user-friendly messages displayed in the TransactionModal
 - **Oracle bridge**: `useOracle` prefers on-chain oracle price data via `useOracleContract` when wallet is connected; falls back to client-side ASTREA simulation when disconnected
 - **ESLint**: Flat config (`eslint.config.js`) with `react-hooks` and `react-refresh` plugins for code quality enforcement
 
@@ -215,7 +404,7 @@ Custom hooks encapsulate this:
 
 ## 5. Testing Strategy
 
-### 5.1 Smart Contract Tests (72 tests)
+### 5.1 Smart Contract Tests (158 tests)
 
 **NFTCollection (8 tests):**
 - Minting with correct URI and royalty
@@ -227,13 +416,13 @@ Custom hooks encapsulate this:
 - Interface support (ERC-165, ERC-721, ERC-2981)
 - Creator lookup
 
-**NFTMarketplace — Fixed-Price Listings (10 tests):**
-- Listing creation (with and without expiration duration)
+**NFTMarketplace — Fixed-Price Listings (10 tests), total Marketplace tests: 126:**
+- USD-denominated listing creation (with and without expiration duration)
 - Approval checks
 - Price validation (zero price reverts)
-- Buy flow with pull-payment fund distribution verification
+- Buy flow with oracle ETH conversion + pull-payment fund distribution verification
 - Withdrawal of accumulated funds
-- Payment validation (incorrect amount reverts)
+- Payment validation (insufficient ETH reverts)
 - Self-purchase prevention
 - Listing cancellation by seller
 - Non-seller cancellation rejection
@@ -284,6 +473,64 @@ Custom hooks encapsulate this:
 - Fee cap enforcement (>10% rejected)
 - Non-owner rejection
 
+**Oracle Integration (6 tests):**
+- Revert when oracle is not set (`OracleNotSet`)
+- Revert when oracle price is stale (`StalePrice`)
+- Excess ETH refund to buyer via pendingWithdrawals
+- Reject payment exceeding 2% slippage tolerance (`ExcessivePayment`)
+- `getListingPriceInWei` returns correct requiredWei and maxWei
+- Price change between listing and buying (oracle rate changes → ETH adjusts)
+
+**Batch Listing (5 tests):**
+- Successful batch listing of multiple NFTs in a single transaction (emits `BatchListed`)
+- `ArrayLengthMismatch` revert when input arrays have different lengths
+- `BatchTooLarge` revert when more than 20 NFTs are submitted
+- Each created listing is independently buyable after the batch call
+- Non-owner NFT inclusion causes revert (ownership check per item)
+
+**Anti-Snipe Auction Extension (4 tests):**
+- Bid placed before the anti-snipe window does NOT extend the auction
+- Bid placed within the last 5 minutes extends `endTime` by 5 minutes and emits `AuctionExtended`
+- Multiple successive snipe bids each trigger another 5-minute extension
+- `endAuction` cannot be called until the (extended) `endTime` has passed
+
+**Dutch Auction (10 tests):**
+- Successful Dutch auction creation with NFT escrow (emits `DutchAuctionCreated`)
+- `EndPriceTooHigh` revert when end price >= start price
+- `getDutchAuctionCurrentPrice` returns start price at t=0 and end price at t=duration
+- Price decreases linearly at mid-duration
+- Successful purchase at current price (emits `DutchAuctionSold`, distributes funds, transfers NFT)
+- Excess ETH refunded to buyer via `pendingWithdrawals`
+- `DutchAuctionEnded` revert when buying an already-sold or expired auction
+- Seller cancels unsold auction (NFT returned, emits `DutchAuctionCancelled`)
+- Non-seller cancellation rejected
+- `getDutchAuctionCount` returns correct value
+
+**On-Chain Offers (9 tests):**
+- Successful offer creation with ETH escrowed (emits `OfferMade`)
+- Multiple offers can exist for the same NFT
+- NFT owner accepts offer: NFT transfers, funds distributed, `OfferAccepted` emitted
+- `OfferExpired` revert when owner tries to accept an expired offer
+- `OfferNotActive` revert when accepting an already-cancelled offer
+- Buyer cancels offer: ETH credited to `pendingWithdrawals`, `OfferCancelled` emitted
+- Non-buyer cancellation rejected
+- `getOfferCount` returns correct value
+- Offer on an unlisted NFT (owner can still accept)
+
+**Additional Coverage (25 tests):**
+- Listing edge cases: non-owner listing, buying cancelled listing, double-cancel
+- Auction edge cases: duration bounds (<1h, >7d), zero start price, no approval, non-owner, ended auction double-end, bidding on ended/expired auctions
+- Anyone can call endAuction
+- cancelAuction works when contract is paused (seller NFT recovery)
+- Admin: non-owner setOracle rejected, zero-address oracle rejected, OracleUpdated event, PlatformFeeUpdated event, MAX_FEE boundary
+- View helpers: getListingCount, getAuctionCount return correct values
+- Withdraw works when paused
+- Oracle zero price reverts with OracleNotSet
+- Oracle price deviation check rejects extreme prices (>50% deviation)
+- Oracle hasSubmitted returns correct status
+- Oracle forceAdvanceRound resets round state
+- Oracle forceAdvanceRound restricted to owner
+
 **SimpleOracle (24 tests):**
 - Reporter management (add/remove, authorization, duplicate prevention)
 - Price submission (authorized, unauthorized, duplicate prevention)
@@ -294,6 +541,38 @@ Custom hooks encapsulate this:
 - Constant verification (MIN_REPORTERS, STALENESS_PERIOD)
 - Multiple rounds: consecutive rounds with price updates, timestamp updates
 - Edge cases: outlier price without skewing median, zero price submission, identical prices from all reporters, removed reporter cannot submit, freshly added reporter can submit immediately
+
+**Oracle Price History (4 tests):**
+- `getPriceHistory()` returns correct price and timestamp after first round finalization
+- History grows across multiple rounds and wraps correctly once the buffer exceeds `MAX_HISTORY` (10)
+- `getPriceHistoryLength()` returns the correct count at each stage (0 before any round, up to 10 after wrap)
+- Price history entries match the median prices recorded during round finalization
+
+**Oracle Advanced Features (13 tests):**
+- `emergencySetPrice` sets price instantly and sets `emergencyPriceActive = true` (emits `EmergencyPriceSet`)
+- Non-owner cannot call `emergencySetPrice`
+- Normal round finalization after emergency clears `emergencyPriceActive`
+- `reporterSubmissions` increments correctly for each reporter on each round
+- `reporterSubmissions` is independent per reporter (different submission counts)
+- `getVolatility()` returns 0 when price history has fewer than 2 entries
+- `getVolatility()` returns correct basis-point volatility across multiple finalized rounds
+- `getVolatility()` reflects updated values as new rounds finalize
+- TWAP returns time-weighted average across multiple price history entries
+- TWAP reverts with `NoPrice` when no price history exists
+- `minRoundInterval` prevents rapid round finalization (reverts `RoundTooFrequent`)
+- `minRoundInterval` allows finalization after the cooldown period has passed
+- `setMinRoundInterval` restricted to owner (non-owner reverts)
+
+**P2P NFT Swaps (9 tests):**
+- Successful pure NFT-for-NFT swap proposal (no ETH top-up; NFT escrowed; emits `SwapProposed`)
+- Successful swap proposal with ETH top-up (sweetener stored in swap)
+- Atomic swap execution by counterparty (both NFTs exchange owners; emits `SwapExecuted`)
+- ETH top-up distribution on acceptance (platform fee + royalty via `_distributeFunds`, remainder to counterparty)
+- Non-counterparty acceptance rejected (`NotCounterparty`)
+- Expired swap acceptance rejected (`SwapExpired`)
+- Proposer cancel reclaims NFT + ETH (NFT returned, ETH to `pendingWithdrawals`; emits `SwapCancelled`)
+- Non-proposer cancel rejected (`NotTheSeller`)
+- Already-cancelled swap acceptance rejected (`SwapNotActive`)
 
 ### 5.2 Test Coverage Areas
 
@@ -331,8 +610,11 @@ cd contracts && npx hardhat run scripts/deploy.js --network sepolia
 
 The deploy script automatically:
 1. Deploys all 3 contracts (NFTCollection, NFTMarketplace, SimpleOracle)
-2. Writes addresses to `frontend/src/config/deployed-addresses.json`
-3. Copies ABIs to `frontend/src/config/abis/`
+2. Links oracle to marketplace via `marketplace.setOracle(oracleAddress)` (waits for tx confirmation)
+3. Verifies contracts on Etherscan (Sepolia only)
+4. Appends deployment to `contracts/deployments.log` for history tracking
+5. Writes addresses to `frontend/src/config/deployed-addresses.json`
+6. Copies ABIs to `frontend/src/config/abis/`
 
 ---
 
@@ -347,13 +629,14 @@ The marketplace distinguishes between **Collections** (groups of thematically re
 
 The Home page Trending section displays top collections (not individual NFTs), linking to their dedicated pages. This mirrors real-world marketplace conventions (OpenSea, Blur).
 
-### 7.2 Make Offer System
+### 7.2 Offer System
 
-Users can make WETH (Wrapped ETH) offers on any NFT, even if not currently listed:
-- **WETH** is used instead of ETH because offers require pre-approved token spending
-- Offer modal includes amount input and expiration dropdown (1 day, 3 days, 7 days, 30 days)
-- Offers tab on NFT detail page displays all active offers with bidder addresses, amounts, and expiry times
-- Submitting an offer triggers the TransactionModal flow
+The on-chain offer system allows any buyer to make a binding ETH offer on any NFT — listed or unlisted:
+- ETH is escrowed directly in the contract on `makeOffer()`, making every offer transparent and verifiable on-chain (unlike OpenSea's off-chain Seaport orders)
+- Offer modal on NFT detail pages includes amount input and expiration dropdown (1 day, 3 days, 7 days, 30 days)
+- Offers tab on NFT detail page displays all active on-chain offers with bidder addresses, amounts, and expiry times
+- NFT owner can accept an offer directly from the UI; submitting triggers the TransactionModal flow
+- Buyers can cancel their offer at any time to reclaim escrowed ETH via `pendingWithdrawals`
 
 ### 7.3 Web3 Transaction States
 
@@ -537,7 +820,7 @@ In addition to the client-side oracle simulation, the project includes a real So
 - When `MIN_REPORTERS` (3) submit in a round, the round finalizes with the **median** price
 - `getLatestPrice()` reverts if price is older than 1 hour (staleness protection)
 - `getLatestPriceUnsafe()` returns stale data without reverting (for UI display)
-- Frontend hook `useOracleContract.js` provides `useLatestPrice()`, `useLatestPriceUnsafe()`, `useSubmitPrice()` via wagmi
+- Frontend hook `useOracleContract.js` provides `useLatestPrice()`, `useLatestPriceUnsafe()`, `useSubmitPrice()`, `usePriceHistory()` via wagmi
 
 ### 9.9 Key Files
 

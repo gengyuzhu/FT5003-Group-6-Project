@@ -52,6 +52,19 @@ const sidebarVariants = {
   exit: { x: "-100%", opacity: 0, transition: { duration: 0.25 } },
 };
 
+// Deterministic gradient based on tokenId
+const GRADIENTS = [
+  "from-violet-500 to-fuchsia-500",
+  "from-cyan-500 to-blue-500",
+  "from-emerald-500 to-teal-500",
+  "from-orange-500 to-red-500",
+  "from-pink-500 to-rose-500",
+  "from-indigo-500 to-purple-500",
+  "from-amber-500 to-yellow-500",
+];
+
+const DEFAULT_ETH_USD_RATE = 2091; // Default oracle rate, used as fallback for auction USD estimates
+
 const collapseVariants = {
   open: { height: "auto", opacity: 1, transition: { duration: 0.3, ease: "easeInOut" } },
   closed: { height: 0, opacity: 0, transition: { duration: 0.25, ease: "easeInOut" } },
@@ -281,7 +294,14 @@ function NftCard({ nft, heightClass }) {
               ) : (
                 <>
                   <p className="text-xs text-dark-400">Price</p>
-                  <p className="gradient-text font-bold">{nft.price} ETH</p>
+                  <p className="gradient-text font-bold">
+                    {nft.priceUsd
+                      ? `$${Number(nft.priceUsd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : `${nft.price} ETH`}
+                  </p>
+                  {nft.priceUsd && nft.price && (
+                    <p className="text-dark-500 text-xs">≈ {nft.price} ETH</p>
+                  )}
                 </>
               )}
             </div>
@@ -328,7 +348,7 @@ function SidebarContent({ types, setTypes, minPrice, setMinPrice, maxPrice, setM
       </FilterSection>
 
       {/* Price range */}
-      <FilterSection title="Price Range (ETH)">
+      <FilterSection title="Price Range (USD)">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <input
@@ -337,10 +357,10 @@ function SidebarContent({ types, setTypes, minPrice, setMinPrice, maxPrice, setM
               value={minPrice}
               onChange={(e) => setMinPrice(e.target.value)}
               className="input-field w-full text-sm py-2 pr-10"
-              step="0.01"
+              step="1"
               min="0"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-500 text-xs">ETH</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-500 text-xs">USD</span>
           </div>
           <span className="text-dark-500 text-sm">-</span>
           <div className="relative flex-1">
@@ -350,10 +370,10 @@ function SidebarContent({ types, setTypes, minPrice, setMinPrice, maxPrice, setM
               value={maxPrice}
               onChange={(e) => setMaxPrice(e.target.value)}
               className="input-field w-full text-sm py-2 pr-10"
-              step="0.01"
+              step="1"
               min="0"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-500 text-xs">ETH</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-500 text-xs">USD</span>
           </div>
         </div>
       </FilterSection>
@@ -379,6 +399,7 @@ function SidebarContent({ types, setTypes, minPrice, setMinPrice, maxPrice, setM
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value)}
+            aria-label="Sort listings"
             className="input-field w-full text-sm py-2 pr-8 appearance-none cursor-pointer"
           >
             <option value="recent">Most Recent</option>
@@ -440,17 +461,6 @@ export default function Explore() {
     return count;
   }, [types, minPrice, maxPrice, categories, sort]);
 
-  // Deterministic gradient based on tokenId
-  const GRADIENTS = [
-    "from-violet-500 to-fuchsia-500",
-    "from-cyan-500 to-blue-500",
-    "from-emerald-500 to-teal-500",
-    "from-orange-500 to-red-500",
-    "from-pink-500 to-rose-500",
-    "from-indigo-500 to-purple-500",
-    "from-amber-500 to-yellow-500",
-  ];
-
   // Convert on-chain listings to display format — merges with mock when available
   const liveListings = useMemo(() => {
     const items = [];
@@ -461,7 +471,8 @@ export default function Explore() {
         listingId: l.listingId,
         name: `NFT #${l.tokenId}`,
         seller: `${l.seller.slice(0, 6)}...${l.seller.slice(-4)}`,
-        price: parseFloat(formatEther(l.price)).toFixed(4),
+        priceUsd: l.priceUsd ? l.priceUsd.toFixed(2) : "0.00",
+        price: l.priceUsd ? l.priceUsd.toFixed(2) : "0.00",
         type: "fixed",
         category: "Art",
         gradient: grad,
@@ -514,18 +525,16 @@ export default function Explore() {
       list = list.filter((n) => types.includes(n.type));
     }
 
-    // price range (use currentBid for auctions, price for fixed)
+    // price range — USD for fixed-price, ETH×2091 estimate for auctions
+    const getUsdPrice = (n) => {
+      if (n.type === "auction") return parseFloat(n.currentBid) * DEFAULT_ETH_USD_RATE;
+      return n.priceUsd ? parseFloat(n.priceUsd) : parseFloat(n.price) * DEFAULT_ETH_USD_RATE;
+    };
     if (minPrice) {
-      list = list.filter((n) => {
-        const p = parseFloat(n.type === "auction" ? n.currentBid : n.price);
-        return p >= parseFloat(minPrice);
-      });
+      list = list.filter((n) => getUsdPrice(n) >= parseFloat(minPrice));
     }
     if (maxPrice) {
-      list = list.filter((n) => {
-        const p = parseFloat(n.type === "auction" ? n.currentBid : n.price);
-        return p <= parseFloat(maxPrice);
-      });
+      list = list.filter((n) => getUsdPrice(n) <= parseFloat(maxPrice));
     }
 
     // category filter
@@ -533,10 +542,9 @@ export default function Explore() {
       list = list.filter((n) => categories.includes(n.category));
     }
 
-    // sort (use currentBid for auctions, price for fixed — consistent with filter)
-    const getPrice = (n) => parseFloat(n.type === "auction" ? n.currentBid : n.price);
-    if (sort === "low") list.sort((a, b) => getPrice(a) - getPrice(b));
-    if (sort === "high") list.sort((a, b) => getPrice(b) - getPrice(a));
+    // sort by USD price
+    if (sort === "low") list.sort((a, b) => getUsdPrice(a) - getUsdPrice(b));
+    if (sort === "high") list.sort((a, b) => getUsdPrice(b) - getUsdPrice(a));
 
     return list;
   }, [search, types, minPrice, maxPrice, categories, sort, isLive, liveListings]);

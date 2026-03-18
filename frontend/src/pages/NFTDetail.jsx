@@ -16,7 +16,7 @@ import {
 } from "react-icons/fi";
 import { HiOutlineBolt } from "react-icons/hi2";
 import { getNFTById, getCollectionById } from "@/data/mockData";
-import { useBuyNFT, usePlaceBid } from "@/hooks/useMarketplace";
+import { useBuyNFT, usePlaceBid, useGetListingPriceInWei } from "@/hooks/useMarketplace";
 import useFavoritesStore from "@/stores/useFavoritesStore";
 import Breadcrumb from "@/components/ui/Breadcrumb";
 import TransactionModal from "@/components/ui/TransactionModal";
@@ -61,6 +61,7 @@ export default function NFTDetail() {
   const { isConnected } = useAccount();
   const { buy, hash: buyHash, isPending: buyPending, isConfirming: buyConfirming, isSuccess: buySuccess, error: buyError } = useBuyNFT();
   const { bid: placeBid, hash: bidHash, isPending: bidPending, isConfirming: bidConfirming, isSuccess: bidSuccess, error: bidError } = usePlaceBid();
+  const { maxWei } = useGetListingPriceInWei(nft?.listingId);
   const toggleFavorite = useFavoritesStore((s) => s.toggleFavorite);
   const nftId = nft ? nft.id : null;
   const liked = useFavoritesStore((s) => nftId !== null && s.favorites.includes(nftId));
@@ -111,7 +112,7 @@ export default function NFTDetail() {
     const canDoRealTx = isConnected && nft.listingId != null;
     setTxRealMode(canDoRealTx);
     if (canDoRealTx) {
-      buy(nft.listingId, nft.priceWei || 0n);
+      buy(nft.listingId, maxWei || 0n);
     }
     setTxModalOpen(true);
   };
@@ -206,6 +207,7 @@ export default function NFTDetail() {
           <div className="flex items-center gap-3 mt-4">
             <button
               onClick={() => toggleFavorite(nft.id)}
+              aria-label={liked ? "Remove from favorites" : "Add to favorites"}
               className={`glass-card p-3 rounded-xl transition-colors ${
                 liked ? "text-red-400" : "text-dark-400 hover:text-red-400"
               }`}
@@ -220,6 +222,7 @@ export default function NFTDetail() {
                   toast.error("Failed to copy link");
                 });
               }}
+              aria-label="Share link"
               className="glass-card p-3 rounded-xl text-dark-400 hover:text-primary-400 transition-colors"
             >
               <FiShare2 />
@@ -232,6 +235,7 @@ export default function NFTDetail() {
                   toast("View on blockchain explorer", { icon: "🔗" });
                 }
               }}
+              aria-label="View on IPFS"
               className="glass-card p-3 rounded-xl text-dark-400 hover:text-primary-400 transition-colors"
             >
               <FiExternalLink />
@@ -347,8 +351,13 @@ export default function NFTDetail() {
                     <FiTag /> Price
                   </p>
                   <p className="gradient-text text-3xl font-bold">
-                    {nft.price} ETH
+                    ${nft.priceUsd ? Number(nft.priceUsd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : nft.price} {nft.priceUsd ? "USD" : "ETH"}
                   </p>
+                  {nft.priceUsd && (
+                    <p className="text-dark-400 text-sm mt-1">
+                      ≈ {nft.price} ETH
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={handleBuy}
@@ -403,7 +412,7 @@ export default function NFTDetail() {
                   <div className="space-y-4">
                     {/* Attributes grid */}
                     <div className="grid grid-cols-2 gap-3">
-                      {nft.attributes.map((attr) => (
+                      {(nft.attributes || []).map((attr) => (
                         <div
                           key={attr.trait_type}
                           className="glass-card p-3 text-center"
@@ -467,9 +476,9 @@ export default function NFTDetail() {
                 {/* Activity tab */}
                 {activeTab === "Activity" && (
                   <div className="space-y-2">
-                    {nft.activity.map((a, i) => (
+                    {(nft.activity || []).map((a, i) => (
                       <div
-                        key={i}
+                        key={`${a.event}-${a.time}-${i}`}
                         className={`glass-card p-3 flex items-center justify-between text-sm ${
                           i % 2 === 0 ? "bg-dark-900/60" : ""
                         }`}
@@ -495,14 +504,14 @@ export default function NFTDetail() {
                 {/* Offers tab */}
                 {activeTab === "Offers" && (
                   <div className="space-y-2">
-                    {nft.offers.length === 0 ? (
+                    {(nft.offers || []).length === 0 ? (
                       <p className="text-dark-500 text-center py-8">
                         No offers yet
                       </p>
                     ) : (
-                      nft.offers.map((b, i) => (
+                      (nft.offers || []).map((b, i) => (
                         <div
-                          key={i}
+                          key={`${b.bidder}-${b.amount}-${i}`}
                           className="glass-card p-3 flex items-center justify-between text-sm"
                         >
                           <div className="flex items-center gap-3">

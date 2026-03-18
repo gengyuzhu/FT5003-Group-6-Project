@@ -85,19 +85,83 @@ const ERROR_MAP = {
     en: "Cannot cancel an auction that already has bids.",
     zh: "无法取消已有出价的拍卖。",
   },
+  OracleNotSet: {
+    en: "Oracle is not configured. Please contact the platform admin.",
+    zh: "预言机尚未配置，请联系平台管理员。",
+  },
+  InsufficientPayment: {
+    en: "Payment amount is incorrect. Please refresh and try again.",
+    zh: "支付金额不正确，请刷新后重试。",
+  },
+  ExcessivePayment: {
+    en: "Payment exceeds the allowed slippage tolerance. Please refresh the price and try again.",
+    zh: "支付金额超出允许的滑点范围，请刷新价格后重试。",
+  },
   // NFTCollection custom errors
   RoyaltyFeeTooHigh: {
     en: "Royalty fee cannot exceed 10%.",
     zh: "版税不能超过 10%。",
   },
   // SimpleOracle custom errors
-  PriceIsStale: {
+  StalePrice: {
     en: "Oracle price data is stale. Waiting for fresh data.",
     zh: "预言机价格数据已过期，正在等待新数据。",
   },
-  NoPriceSubmitted: {
+  NoPrice: {
     en: "No price data has been submitted to the oracle yet.",
     zh: "尚未向预言机提交价格数据。",
+  },
+  PriceDeviationTooHigh: {
+    en: "Submitted price deviates too far from the current oracle price.",
+    zh: "提交的价格与当前预言机价格偏差过大。",
+  },
+  ArrayLengthMismatch: {
+    en: "Array lengths do not match. Token IDs, prices, and durations must have the same length.",
+    zh: "数组长度不匹配。代币ID、价格和持续时间必须具有相同的长度。",
+  },
+  BatchTooLarge: {
+    en: "Batch size exceeds the maximum of 20 NFTs per transaction.",
+    zh: "批量大小超过每笔交易最多20个NFT的限制。",
+  },
+  EndPriceTooHigh: {
+    en: "End price must be lower than start price for Dutch auctions.",
+    zh: "荷兰拍卖的结束价格必须低于起始价格。",
+  },
+  DutchAuctionEnded: {
+    en: "This Dutch auction has already ended or been sold.",
+    zh: "该荷兰拍卖已结束或已售出。",
+  },
+  OfferNotActive: {
+    en: "This offer is no longer active.",
+    zh: "该报价已不再有效。",
+  },
+  OfferExpired: {
+    en: "This offer has expired.",
+    zh: "该报价已过期。",
+  },
+  SwapNotActive: {
+    en: "This swap proposal is no longer active.",
+    zh: "该交换提案已不再有效。",
+  },
+  NotCounterparty: {
+    en: "Only the designated counterparty can accept this swap.",
+    zh: "只有指定的交换对手方可以接受此交换。",
+  },
+  SwapExpired: {
+    en: "This swap proposal has expired.",
+    zh: "该交换提案已过期。",
+  },
+  RoundTooFrequent: {
+    en: "Oracle round finalization too frequent. Please wait before submitting.",
+    zh: "预言机轮次结算过于频繁，请稍后再提交。",
+  },
+  AlreadySubmitted: {
+    en: "You have already submitted a price for this round.",
+    zh: "你已经在本轮中提交了价格。",
+  },
+  NotAuthorizedReporter: {
+    en: "You are not authorized to submit prices to the oracle.",
+    zh: "你无权向预言机提交价格。",
   },
   // Common wallet / transaction errors
   UserRejectedRequestError: {

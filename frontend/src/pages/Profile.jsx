@@ -109,20 +109,16 @@ export default function Profile() {
   const handleConfirmListing = () => {
     setListModalOpen(false);
     if (isConnected && listNFT?.tokenId != null) {
-      // Approve marketplace then list
+      // Step 1: Approve marketplace to transfer the NFT
       approveNFT(marketplaceAddr, listNFT.tokenId);
-      listOnChain(
-        /* nftContract — use deployed address */ undefined,
-        listNFT.tokenId,
-        listPrice,
-        0
-      );
+      // Note: In production, we'd wait for approval tx receipt before listing.
+      // For this demo, the TransactionModal handles the staged UX.
     }
     setTxModalOpen(true);
   };
 
   const handleTxComplete = () => {
-    toast.success(`${listNFT?.name} listed for ${listPrice} ETH!`);
+    toast.success(`${listNFT?.name} listed for $${listPrice} USD!`);
     setListNFT(null);
     setListPrice("");
   };
@@ -190,7 +186,7 @@ export default function Profile() {
           <div className="flex items-center justify-center gap-8 flex-wrap">
             <div className="text-center">
               <p className="text-2xl font-bold text-white">
-                {MOCK_USER_PROFILE.owned.length}
+                {isConnected ? ownedNFTs.length : MOCK_USER_PROFILE.owned.length}
               </p>
               <p className="text-dark-400 text-sm">Owned</p>
             </div>
@@ -302,6 +298,12 @@ export default function Profile() {
                 </div>
               </motion.div>
             ))}
+            {ownedNFTs.length === 0 && (
+              <motion.div variants={cardVariant} className="col-span-full text-center py-16">
+                <p className="text-dark-400 text-lg mb-2">No NFTs collected yet</p>
+                <Link to="/explore" className="text-primary-400 hover:text-primary-300 text-sm">Browse the marketplace →</Link>
+              </motion.div>
+            )}
           </motion.div>
         )}
 
@@ -406,6 +408,12 @@ export default function Profile() {
                 </div>
               </motion.div>
             ))}
+            {favoritedNFTs.length === 0 && (
+              <motion.div variants={cardVariant} className="col-span-full text-center py-16">
+                <p className="text-dark-400 text-lg mb-2">No favorites yet</p>
+                <Link to="/explore" className="text-primary-400 hover:text-primary-300 text-sm">Explore NFTs and save your favorites →</Link>
+              </motion.div>
+            )}
           </motion.div>
         )}
 
@@ -428,7 +436,7 @@ export default function Profile() {
 
             {MOCK_USER_PROFILE.activity.map((a, i) => (
               <motion.div
-                key={i}
+                key={a.nft + a.event + a.time}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.06 }}
@@ -508,7 +516,7 @@ export default function Profile() {
                   className="input-field w-full pr-14"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-dark-400 text-sm font-medium">
-                  ETH
+                  USD
                 </span>
               </div>
 

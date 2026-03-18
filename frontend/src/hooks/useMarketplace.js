@@ -1,20 +1,7 @@
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { useCallback } from "react";
-import { parseEther } from "viem";
-
-// Default addresses
-let MARKETPLACE_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
-let MARKETPLACE_ABI = [];
-
-try {
-  const addresses = await import("@/config/deployed-addresses.json");
-  MARKETPLACE_ADDRESS = addresses.marketplace || MARKETPLACE_ADDRESS;
-} catch {}
-
-try {
-  const abi = await import("@/config/abis/NFTMarketplace.json");
-  MARKETPLACE_ABI = abi.default || abi;
-} catch {}
+import { parseEther, parseUnits } from "viem";
+import { MARKETPLACE_ADDRESS, NFT_COLLECTION_ADDRESS, NFTMarketplaceABI as MARKETPLACE_ABI } from "@/config/contracts";
 
 export function useMarketplaceAddress() {
   return MARKETPLACE_ADDRESS;
@@ -82,17 +69,23 @@ export function usePendingWithdrawal(address) {
 
 // ── Write hooks ─────────────────────────────────────────────────────
 
+/**
+ * List an NFT for a USD price.
+ * @param priceUsd - USD string e.g. "100.50" → 10050 cents on-chain
+ */
 export function useListNFT() {
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const list = useCallback(
-    (nftContract, tokenId, priceInEth, durationSeconds = 0) => {
+    (nftContract, tokenId, priceUsd, durationSeconds = 0) => {
+      // Convert USD string to cents BigInt: "100.50" → 10050n
+      const cents = parseUnits(priceUsd.toString(), 2);
       writeContract({
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "listNFT",
-        args: [nftContract, BigInt(tokenId), parseEther(priceInEth.toString()), BigInt(durationSeconds)],
+        args: [nftContract, BigInt(tokenId), cents, BigInt(durationSeconds)],
       });
     },
     [writeContract]
@@ -101,18 +94,21 @@ export function useListNFT() {
   return { list, hash, isPending, isConfirming, isSuccess, error };
 }
 
+/**
+ * Buy a listed NFT. Pass maxWei (BigInt) from getListingPriceInWei.
+ */
 export function useBuyNFT() {
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const buy = useCallback(
-    (listingId, price) => {
+    (listingId, maxWei) => {
       writeContract({
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "buyNFT",
         args: [BigInt(listingId)],
-        value: price,
+        value: maxWei,
       });
     },
     [writeContract]
@@ -203,17 +199,21 @@ export function useEndAuction() {
   return { end, hash, isPending, isConfirming, isSuccess, error };
 }
 
+/**
+ * Update listing price (USD string → cents on-chain).
+ */
 export function useUpdateListingPrice() {
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const update = useCallback(
-    (listingId, newPriceInEth) => {
+    (listingId, newPriceUsd) => {
+      const cents = parseUnits(newPriceUsd.toString(), 2);
       writeContract({
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "updateListingPrice",
-        args: [BigInt(listingId), parseEther(newPriceInEth.toString())],
+        args: [BigInt(listingId), cents],
       });
     },
     [writeContract]
@@ -248,6 +248,281 @@ export function useIsListingExpired(listingId) {
     functionName: "isListingExpired",
     args: [BigInt(listingId ?? 0)],
     query: { enabled: listingId != null },
+  });
+}
+
+/**
+ * Read the oracle-computed ETH price for a listing.
+ * Returns { requiredWei, maxWei } as BigInt.
+ */
+export function useGetListingPriceInWei(listingId) {
+  const { data, ...rest } = useReadContract({
+    address: MARKETPLACE_ADDRESS,
+    abi: MARKETPLACE_ABI,
+    functionName: "getListingPriceInWei",
+    args: [BigInt(listingId ?? 0)],
+    query: { enabled: listingId != null },
+  });
+
+  return {
+    requiredWei: data?.[0] ?? null,
+    maxWei: data?.[1] ?? null,
+    ...rest,
+  };
+}
+
+/**
+ * Batch list multiple NFTs in a single transaction.
+ * @param pricesUsd - Array of USD strings e.g. ["100.50", "200.00"]
+ */
+export function useBatchListNFT() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const batchList = useCallback(
+    (nftContract, tokenIds, pricesUsd, durations) => {
+      const centsArray = pricesUsd.map((p) => parseUnits(p.toString(), 2));
+      const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
+      const durationsBigInt = durations.map((d) => BigInt(d));
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "batchListNFT",
+        args: [nftContract, tokenIdsBigInt, centsArray, durationsBigInt],
+      });
+    },
+    [writeContract]
+  );
+
+  return { batchList, hash, isPending, isConfirming, isSuccess, error };
+}
+
+// ── Dutch Auction hooks ─────────────────────────────────────────────
+
+export function useCreateDutchAuction() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const create = useCallback(
+    (nftContract, tokenId, startPriceUsd, endPriceUsd, durationSeconds) => {
+      const startCents = parseUnits(startPriceUsd.toString(), 2);
+      const endCents = parseUnits(endPriceUsd.toString(), 2);
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "createDutchAuction",
+        args: [nftContract, BigInt(tokenId), startCents, endCents, BigInt(durationSeconds)],
+      });
+    },
+    [writeContract]
+  );
+
+  return { create, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useBuyDutchAuction() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const buy = useCallback(
+    (auctionId, maxWei) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "buyDutchAuction",
+        args: [BigInt(auctionId)],
+        value: maxWei,
+      });
+    },
+    [writeContract]
+  );
+
+  return { buy, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useGetDutchAuctionPriceInWei(auctionId) {
+  const { data, ...rest } = useReadContract({
+    address: MARKETPLACE_ADDRESS,
+    abi: MARKETPLACE_ABI,
+    functionName: "getDutchAuctionPriceInWei",
+    args: [BigInt(auctionId ?? 0)],
+    query: { enabled: auctionId != null },
+  });
+
+  return {
+    requiredWei: data?.[0] ?? null,
+    maxWei: data?.[1] ?? null,
+    ...rest,
+  };
+}
+
+export function useDutchAuctionCount() {
+  return useReadContract({
+    address: MARKETPLACE_ADDRESS,
+    abi: MARKETPLACE_ABI,
+    functionName: "getDutchAuctionCount",
+  });
+}
+
+export function useCancelDutchAuction() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const cancel = useCallback(
+    (auctionId) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "cancelDutchAuction",
+        args: [BigInt(auctionId)],
+      });
+    },
+    [writeContract]
+  );
+
+  return { cancel, hash, isPending, isConfirming, isSuccess, error };
+}
+
+// ── On-Chain Offer hooks ────────────────────────────────────────────
+
+export function useMakeOffer() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const makeOffer = useCallback(
+    (nftContract, tokenId, durationSeconds, amountEth) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "makeOffer",
+        args: [nftContract, BigInt(tokenId), BigInt(durationSeconds)],
+        value: parseEther(amountEth.toString()),
+      });
+    },
+    [writeContract]
+  );
+
+  return { makeOffer, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useAcceptOffer() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const accept = useCallback(
+    (offerId) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "acceptOffer",
+        args: [BigInt(offerId)],
+      });
+    },
+    [writeContract]
+  );
+
+  return { accept, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useCancelOffer() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const cancel = useCallback(
+    (offerId) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "cancelOffer",
+        args: [BigInt(offerId)],
+      });
+    },
+    [writeContract]
+  );
+
+  return { cancel, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useOfferCount() {
+  return useReadContract({
+    address: MARKETPLACE_ADDRESS,
+    abi: MARKETPLACE_ABI,
+    functionName: "getOfferCount",
+  });
+}
+
+// ── P2P Swap hooks ─────────────────────────────────────────────────
+
+export function useProposeSwap() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const propose = useCallback(
+    (counterparty, proposerNftContract, proposerTokenId, counterpartyNftContract, counterpartyTokenId, durationSeconds, ethTopUp = "0") => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "proposeSwap",
+        args: [
+          counterparty,
+          proposerNftContract,
+          BigInt(proposerTokenId),
+          counterpartyNftContract,
+          BigInt(counterpartyTokenId),
+          BigInt(durationSeconds),
+        ],
+        value: parseEther(ethTopUp.toString()),
+      });
+    },
+    [writeContract]
+  );
+
+  return { propose, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useAcceptSwap() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const accept = useCallback(
+    (swapId) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "acceptSwap",
+        args: [BigInt(swapId)],
+      });
+    },
+    [writeContract]
+  );
+
+  return { accept, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useCancelSwap() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const cancel = useCallback(
+    (swapId) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "cancelSwap",
+        args: [BigInt(swapId)],
+      });
+    },
+    [writeContract]
+  );
+
+  return { cancel, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useSwapCount() {
+  return useReadContract({
+    address: MARKETPLACE_ADDRESS,
+    abi: MARKETPLACE_ABI,
+    functionName: "getSwapCount",
   });
 }
 

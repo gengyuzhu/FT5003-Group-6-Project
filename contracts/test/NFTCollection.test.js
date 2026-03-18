@@ -17,17 +17,17 @@ describe("NFTCollection", function () {
 
       await expect(nft.connect(alice).mintNFT(alice.address, uri, royaltyFee))
         .to.emit(nft, "NFTMinted")
-        .withArgs(0, alice.address, uri, royaltyFee);
+        .withArgs(1, alice.address, uri, royaltyFee);
 
-      expect(await nft.ownerOf(0)).to.equal(alice.address);
-      expect(await nft.tokenURI(0)).to.equal(uri);
+      expect(await nft.ownerOf(1)).to.equal(alice.address);
+      expect(await nft.tokenURI(1)).to.equal(uri);
       expect(await nft.totalSupply()).to.equal(1);
     });
 
     it("should set correct royalty info", async () => {
       await nft.connect(alice).mintNFT(alice.address, "ipfs://test", 500);
 
-      const [receiver, amount] = await nft.royaltyInfo(0, ethers.parseEther("1"));
+      const [receiver, amount] = await nft.royaltyInfo(1, ethers.parseEther("1"));
       expect(receiver).to.equal(alice.address);
       expect(amount).to.equal(ethers.parseEther("0.05")); // 5%
     });
@@ -43,13 +43,13 @@ describe("NFTCollection", function () {
       await nft.connect(bob).mintNFT(bob.address, "ipfs://2", 100);
 
       expect(await nft.totalSupply()).to.equal(2);
-      expect(await nft.ownerOf(0)).to.equal(alice.address);
-      expect(await nft.ownerOf(1)).to.equal(bob.address);
+      expect(await nft.ownerOf(1)).to.equal(alice.address);
+      expect(await nft.ownerOf(2)).to.equal(bob.address);
     });
 
     it("should allow minting to another address", async () => {
       await nft.connect(alice).mintNFT(bob.address, "ipfs://gift", 250);
-      expect(await nft.ownerOf(0)).to.equal(bob.address);
+      expect(await nft.ownerOf(1)).to.equal(bob.address);
     });
   });
 
@@ -59,8 +59,8 @@ describe("NFTCollection", function () {
       await nft.connect(alice).mintNFT(alice.address, "ipfs://2", 0);
 
       expect(await nft.balanceOf(alice.address)).to.equal(2);
-      expect(await nft.tokenOfOwnerByIndex(alice.address, 0)).to.equal(0);
-      expect(await nft.tokenOfOwnerByIndex(alice.address, 1)).to.equal(1);
+      expect(await nft.tokenOfOwnerByIndex(alice.address, 0)).to.equal(1);
+      expect(await nft.tokenOfOwnerByIndex(alice.address, 1)).to.equal(2);
     });
   });
 
@@ -76,7 +76,7 @@ describe("NFTCollection", function () {
 
     it("getCreator should return royalty receiver", async () => {
       await nft.connect(alice).mintNFT(alice.address, "ipfs://test", 500);
-      expect(await nft.getCreator(0)).to.equal(alice.address);
+      expect(await nft.getCreator(1)).to.equal(alice.address);
     });
   });
 });
