@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "E:\\2025 NUS\\FT5003\\Project\\contracts\\contracts\\NFTCollection.sol": {
-      "lastModificationDate": 1773775777687,
-      "contentHash": "da31505f936a4ddadaea02593b5f0c93",
+      "lastModificationDate": 1774980293327,
+      "contentHash": "da162e64fab34dbc5f76ae4c5a81b108",
       "sourceName": "contracts/NFTCollection.sol",
       "solcConfig": {
         "version": "0.8.28",
@@ -39,6 +39,7 @@
         "^0.8.24"
       ],
       "artifacts": [
+        "IERC4907",
         "NFTCollection"
       ]
     },
@@ -959,8 +960,8 @@
       ]
     },
     "E:\\2025 NUS\\FT5003\\Project\\contracts\\contracts\\NFTMarketplace.sol": {
-      "lastModificationDate": 1773830064380,
-      "contentHash": "851667f4289ebd40a8f300f78d913d50",
+      "lastModificationDate": 1775019087940,
+      "contentHash": "545327939c582b5988940d05c03458da",
       "sourceName": "contracts/NFTMarketplace.sol",
       "solcConfig": {
         "version": "0.8.28",
@@ -997,6 +998,8 @@
         "^0.8.24"
       ],
       "artifacts": [
+        "IERC4907Marketplace",
+        "INFTCollaborative",
         "ISimpleOracle",
         "NFTMarketplace"
       ]
@@ -1149,6 +1152,45 @@
       ],
       "artifacts": [
         "SimpleOracle"
+      ]
+    },
+    "E:\\2025 NUS\\FT5003\\Project\\contracts\\contracts\\PriceOracle.sol": {
+      "lastModificationDate": 1775019131485,
+      "contentHash": "76b84c338679bf456cb9174f1212c25c",
+      "sourceName": "contracts/PriceOracle.sol",
+      "solcConfig": {
+        "version": "0.8.28",
+        "settings": {
+          "evmVersion": "cancun",
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/Ownable.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "PriceOracle"
       ]
     }
   }

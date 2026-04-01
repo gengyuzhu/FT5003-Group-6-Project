@@ -163,6 +163,62 @@ const ERROR_MAP = {
     en: "You are not authorized to submit prices to the oracle.",
     zh: "你无权向预言机提交价格。",
   },
+  InsufficientStake: {
+    en: "Insufficient stake. Reporters must stake at least 0.05 ETH to submit prices.",
+    zh: "质押不足。报告者需要至少质押 0.05 ETH 才能提交价格。",
+  },
+  NoStakeToWithdraw: {
+    en: "No stake available to withdraw.",
+    zh: "没有可提取的质押。",
+  },
+  UnstakeDuringRound: {
+    en: "Cannot unstake during an active oracle round.",
+    zh: "在活跃的预言机轮次中无法取消质押。",
+  },
+  RentalListingNotActive: {
+    en: "This rental listing is no longer active.",
+    zh: "此租赁挂单已不再有效。",
+  },
+  RentalDurationInvalid: {
+    en: "Invalid rental duration. Check the minimum and maximum days allowed.",
+    zh: "租赁时长无效，请检查允许的最小和最大天数。",
+  },
+  AlreadyRated: {
+    en: "You have already rated this transaction.",
+    zh: "你已经对此交易进行了评分。",
+  },
+  InvalidRating: {
+    en: "Rating must be between 1 and 5.",
+    zh: "评分必须在 1 到 5 之间。",
+  },
+  NotTxParticipant: {
+    en: "Only the buyer or seller of this transaction can rate it.",
+    zh: "只有此交易的买方或卖方才能评分。",
+  },
+  TxNotFound: {
+    en: "Transaction not found.",
+    zh: "交易未找到。",
+  },
+  EmptyCreators: {
+    en: "At least one creator must be specified for collaborative minting.",
+    zh: "协作铸造需要至少指定一个创作者。",
+  },
+  SharesLengthMismatch: {
+    en: "Creators and shares arrays must have the same length.",
+    zh: "创作者和份额数组长度必须一致。",
+  },
+  InvalidSharesTotal: {
+    en: "Creator shares must sum to exactly 10000 basis points (100%).",
+    zh: "创作者份额总和必须精确等于 10000 基点（100%）。",
+  },
+  NoRoyaltyToDistribute: {
+    en: "No royalty payment to distribute. Send ETH with the transaction.",
+    zh: "没有可分配的版税。请在交易中附加 ETH。",
+  },
+  CreatorTransferFailed: {
+    en: "Failed to transfer royalty to creator. Please try again.",
+    zh: "向创作者转移版税失败，请重试。",
+  },
   // Common wallet / transaction errors
   UserRejectedRequestError: {
     en: "Transaction was rejected in your wallet.",

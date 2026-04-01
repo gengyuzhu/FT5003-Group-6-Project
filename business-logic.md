@@ -150,7 +150,7 @@ Buyer refund: excess ETH above requiredWei (if any)
 
 ### 2.9 Platform Differentiators vs OpenSea
 
-The marketplace supports **6 sale mechanisms** compared to OpenSea's 2 (fixed-price + English auction):
+The marketplace supports **8 sale mechanisms** compared to OpenSea's 2 (fixed-price + English auction):
 
 | Mechanism | This Marketplace | OpenSea |
 |-----------|:---------------:|:-------:|
@@ -163,7 +163,7 @@ The marketplace supports **6 sale mechanisms** compared to OpenSea's 2 (fixed-pr
 
 ### 2.10 Oracle Price History
 
-**Business Rule**: `SimpleOracle` now records the last 10 finalized round prices on-chain, giving buyers and sellers transparent access to recent price trends without relying on off-chain indexers.
+**Business Rule**: `PriceOracle` now records the last 10 finalized round prices on-chain, giving buyers and sellers transparent access to recent price trends without relying on off-chain indexers.
 
 **Implementation:**
 - A circular `priceHistory` buffer (capped at `MAX_HISTORY = 10`) is maintained in contract storage
@@ -288,6 +288,87 @@ Oracle converts `currentUsdCents` → ETH via `_getRequiredWei()`.
 - `setMinRoundInterval(seconds)` configures the guard; `_finalizeRound` checks the interval and reverts with `RoundTooFrequent` if rounds are finalized too rapidly
 - Prevents same-block or rapid-fire price manipulation via flash loans, where an attacker could submit multiple prices within a single transaction to manipulate the oracle price
 
+### 2.15 NFT Rental (ERC-4907)
+
+**Business Rule**: NFT owners can list their NFTs for rent. Renters get time-limited "usage rights" without the NFT leaving the owner's wallet. OpenSea does not support NFT rentals at all.
+
+**How it works:**
+1. Owner calls `listForRent(nftContract, tokenId, dailyPriceUsdCents, maxDays)` — NFT stays in owner's wallet (no escrow)
+2. Renter calls `rentNFT(rentalId, days)` with ETH payment — marketplace calls `IERC4907.setUser(tokenId, renter, expires)` on the NFT contract
+3. The "user" role expires automatically at the timestamp; `userOf(tokenId)` returns `address(0)` after expiry
+4. On NFT transfer, user info is automatically cleared (ERC-4907 standard behavior)
+5. Funds distributed via `_distributeFunds` (platform fee + royalty + owner proceeds)
+6. Completed rental recorded as `CompletedTx` (type=5) for reputation system
+
+**New errors**: `RentalListingNotActive()`, `RentalDurationInvalid()`
+**New events**: `RentalListed`, `NFTRented`, `RentalCancelled`
+
+### 2.16 Collaborative Minting
+
+**Business Rule**: Multiple creators can co-mint a single NFT with on-chain share allocation. When the NFT generates royalties on secondary sales or rentals, each creator receives their proportional share automatically.
+
+**Mint Flow:**
+1. Caller provides `creators[]` and `sharesBps[]` arrays — shares must sum to exactly 10000 (100%)
+2. NFT is minted with royalty receiver set to the NFT contract itself (not individual creator)
+3. `CollabInfo` stored on-chain: creator addresses + share percentages
+4. `isCollaborative[tokenId]` set to `true`
+
+**Royalty Distribution Flow:**
+1. When a collaborative NFT is sold/rented, the marketplace calls `_distributeFunds` which detects `isCollaborative == true`
+2. Instead of adding royalty to `pendingWithdrawals[nftContract]`, marketplace calls `NFTCollection.distributeRoyalty{value: royaltyAmount}(tokenId)`
+3. `distributeRoyalty` splits incoming ETH among all creators based on their share BPS
+4. Each creator's share is added to `pendingCreatorPayments[creator]` (pull-payment)
+5. Creators call `withdrawCreatorPayment()` to claim
+
+**New errors**: `EmptyCreators()`, `SharesLengthMismatch()`, `InvalidSharesTotal()`, `NoRoyaltyToDistribute()`, `CreatorTransferFailed()`
+
+### 2.17 On-Chain Reputation System
+
+**Business Rule**: Every completed transaction (across all 8 sale types) automatically records a `CompletedTx` entry. Both buyer and seller can rate each other once (score 1–5). Ratings are permanent, immutable, and on-chain. This solves the "rug pull seller" problem that OpenSea cannot address.
+
+**Rating Flow:**
+1. After any sale completes (fixed-price, auction, Dutch, offer, swap, rental), `_recordTx()` creates a `CompletedTx` with buyer, seller, NFT details, transaction type, and timestamp
+2. Either party calls `rateTransaction(txId, score)` with a score from 1 to 5
+3. The counterparty's `reputationScore` is incremented by the score; `ratingCount` is incremented by 1
+4. `getReputation(user)` returns `avgScore100` (average × 100 for precision) and `totalRatings`
+5. Double-rating is prevented by `txRatings[txId][rater]` check
+
+**Transaction Types**: 0=fixed-price, 1=auction, 2=Dutch, 3=offer, 4=swap, 5=rental
+
+**New errors**: `AlreadyRated()`, `InvalidRating()`, `NotTxParticipant()`, `TxNotFound()`
+**New events**: `TransactionCompleted`, `TransactionRated`
+
+### 2.18 PriceOracle: Economic-Incentive Staking & Slashing
+
+**Business Rule**: Reporters must stake ETH to participate in price reporting. This creates economic alignment — honest reporting is rewarded (keep stake), dishonest reporting is punished (slashed). Design inspired by the ASTREA protocol.
+
+**Staking Mechanism:**
+1. Reporter calls `stake()` with ETH — minimum 0.05 ETH required to submit prices
+2. `unstake(amount)` withdraws stake, but reverts if reporter has already submitted in the current round (prevents gaming)
+3. `reporterStakes[reporter]` tracks each reporter's current stake
+
+**Slashing Mechanism:**
+1. After each round finalizes and median is computed, every reporter's submission is checked
+2. If `|reportedPrice - median| > median × 10%` (SLASH_THRESHOLD_BPS = 1000), the reporter is slashed
+3. Slash amount = 20% of reporter's stake (SLASH_PENALTY_BPS = 2000)
+4. Slashed funds accumulate in `slashedFundsPool`
+5. Owner calls `claimSlashedFunds()` to withdraw
+6. `ReporterSlashed` event emitted with details
+
+**Economic Rationale**: The cost of being slashed (20% of stake, minimum 0.01 ETH per round) exceeds any potential gain from price manipulation, making dishonesty irrational.
+
+### 2.19 PriceOracle: Chainlink AggregatorV3 Compatibility
+
+**Business Rule**: The PriceOracle implements the Chainlink AggregatorV3 interface, enabling zero-code migration to production Chainlink feeds.
+
+**Interface:**
+- `latestRoundData()` → (roundId, answer, startedAt, updatedAt, answeredInRound) — matches Chainlink format exactly
+- `decimals()` → 8 (same as Chainlink ETH/USD feed)
+- `description()` → "ETH/USD"
+- `version()` → 1
+
+**Migration Path**: In production, replace the PriceOracle address with a Chainlink ETH/USD feed address. The marketplace's `ISimpleOracle.getLatestPrice()` interface remains the same (PriceOracle implements this interface), so no marketplace code changes are needed.
+
 ---
 
 ## 3. Smart Contract Implementation Details
@@ -300,12 +381,14 @@ Oracle converts `currentUsdCents` → ETH via `_getRequiredWei()`.
 | EVM Target | Cancun |
 | NFT Standard | ERC-721 (OpenZeppelin v5) |
 | Royalty Standard | ERC-2981 |
+| Rental Standard | ERC-4907 (time-limited user role) |
 | Enumeration | ERC-721 Enumerable |
 | Access Control | Ownable |
 | Security | ReentrancyGuard |
 | Emergency Stop | Pausable |
-| Error Handling | 27 Custom Errors (gas-efficient) |
-| Oracle Integration | ISimpleOracle interface for USD→ETH conversion |
+| Error Handling | 54 Custom Errors (37 marketplace + 10 oracle + 7 NFTCollection) |
+| Oracle Integration | IPriceOracle interface for USD→ETH conversion |
+| Oracle Compatibility | Chainlink AggregatorV3 Interface |
 
 ### 3.2 Gas Optimization
 
@@ -404,7 +487,7 @@ Custom hooks encapsulate this:
 
 ## 5. Testing Strategy
 
-### 5.1 Smart Contract Tests (158 tests)
+### 5.1 Smart Contract Tests (197 tests)
 
 **NFTCollection (8 tests):**
 - Minting with correct URI and royalty
@@ -531,7 +614,7 @@ Custom hooks encapsulate this:
 - Oracle forceAdvanceRound resets round state
 - Oracle forceAdvanceRound restricted to owner
 
-**SimpleOracle (24 tests):**
+**PriceOracle (24 tests):**
 - Reporter management (add/remove, authorization, duplicate prevention)
 - Price submission (authorized, unauthorized, duplicate prevention)
 - Round finalization with median calculation
@@ -609,7 +692,7 @@ cd contracts && npx hardhat run scripts/deploy.js --network sepolia
 ```
 
 The deploy script automatically:
-1. Deploys all 3 contracts (NFTCollection, NFTMarketplace, SimpleOracle)
+1. Deploys all 3 contracts (NFTCollection, NFTMarketplace, PriceOracle)
 2. Links oracle to marketplace via `marketplace.setOracle(oracleAddress)` (waits for tx confirmation)
 3. Verifies contracts on Etherscan (Sepolia only)
 4. Appends deployment to `contracts/deployments.log` for history tracking
@@ -812,9 +895,9 @@ Three bugs were identified and fixed in `oracleService.js`:
 
 3. **Outlier detection clarity** (`aggregateASTREA`): Refactored to explicit relative deviation form: `Math.abs(price - median) / median > OUTLIER_THRESHOLD` for improved readability.
 
-### 9.8 On-Chain SimpleOracle Contract
+### 9.8 On-Chain PriceOracle Contract
 
-In addition to the client-side oracle simulation, the project includes a real Solidity contract (`SimpleOracle.sol`) deployed alongside the marketplace:
+In addition to the client-side oracle simulation, the project includes a real Solidity contract (`PriceOracle.sol`) deployed alongside the marketplace:
 
 - **Authorized reporters** submit prices; the owner adds/removes reporters
 - When `MIN_REPORTERS` (3) submit in a round, the round finalizes with the **median** price
@@ -831,8 +914,8 @@ In addition to the client-side oracle simulation, the project includes a real So
 | `frontend/src/components/oracle/OracleDashboard.jsx` | Visual dashboard: mode selector, node grid, SVG chart, result comparison |
 | `frontend/src/components/oracle/OracleAttackSimulator.jsx` | Guided 3-step attack simulation walkthrough |
 | `frontend/src/components/oracle/OracleEducationPanel.jsx` | Bilingual (EN/ZH) educational content explaining Oracle Problem & ASTREA |
-| `contracts/contracts/SimpleOracle.sol` | On-chain multi-reporter median oracle price feed |
-| `frontend/src/hooks/useOracleContract.js` | wagmi hooks for reading/writing SimpleOracle contract |
+| `contracts/contracts/PriceOracle.sol` | On-chain multi-reporter median oracle price feed |
+| `frontend/src/hooks/useOracleContract.js` | wagmi hooks for reading/writing PriceOracle contract |
 
 ---
 

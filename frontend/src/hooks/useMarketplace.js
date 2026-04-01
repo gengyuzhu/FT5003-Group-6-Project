@@ -540,3 +540,110 @@ export function useWithdraw() {
 
   return { withdraw, hash, isPending, isConfirming, isSuccess, error };
 }
+
+// ── Rental Hooks ─────────────────────────────────────────────────────
+
+export function useListForRent() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const listForRent = useCallback(
+    (nftContract, tokenId, dailyPriceUsdCents, maxDays) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "listForRent",
+        args: [nftContract, tokenId, dailyPriceUsdCents, maxDays],
+      });
+    },
+    [writeContract]
+  );
+
+  return { listForRent, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useRentNFT() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const rentNFT = useCallback(
+    (rentalId, days, value) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "rentNFT",
+        args: [rentalId, days],
+        value,
+      });
+    },
+    [writeContract]
+  );
+
+  return { rentNFT, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useCancelRentalListing() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const cancelRentalListing = useCallback(
+    (rentalId) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "cancelRentalListing",
+        args: [rentalId],
+      });
+    },
+    [writeContract]
+  );
+
+  return { cancelRentalListing, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useRentalListingCount() {
+  return useReadContract({
+    address: MARKETPLACE_ADDRESS,
+    abi: MARKETPLACE_ABI,
+    functionName: "getRentalListingCount",
+  });
+}
+
+// ── Reputation Hooks ─────────────────────────────────────────────────
+
+export function useRateTransaction() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const rateTransaction = useCallback(
+    (txId, score) => {
+      writeContract({
+        address: MARKETPLACE_ADDRESS,
+        abi: MARKETPLACE_ABI,
+        functionName: "rateTransaction",
+        args: [txId, score],
+      });
+    },
+    [writeContract]
+  );
+
+  return { rateTransaction, hash, isPending, isConfirming, isSuccess, error };
+}
+
+export function useGetReputation(userAddress) {
+  return useReadContract({
+    address: MARKETPLACE_ADDRESS,
+    abi: MARKETPLACE_ABI,
+    functionName: "getReputation",
+    args: [userAddress],
+    enabled: !!userAddress,
+  });
+}
+
+export function useCompletedTxCount() {
+  return useReadContract({
+    address: MARKETPLACE_ADDRESS,
+    abi: MARKETPLACE_ABI,
+    functionName: "getCompletedTxCount",
+  });
+}

@@ -19,12 +19,12 @@ async function main() {
   const marketplaceAddress = await marketplace.getAddress();
   console.log("NFTMarketplace deployed to:", marketplaceAddress);
 
-  // Deploy SimpleOracle
-  const SimpleOracle = await hre.ethers.getContractFactory("SimpleOracle");
-  const oracle = await SimpleOracle.deploy();
+  // Deploy PriceOracle
+  const PriceOracle = await hre.ethers.getContractFactory("PriceOracle");
+  const oracle = await PriceOracle.deploy();
   await oracle.waitForDeployment();
   const oracleAddress = await oracle.getAddress();
-  console.log("SimpleOracle deployed to:", oracleAddress);
+  console.log("PriceOracle deployed to:", oracleAddress);
 
   // Link oracle to marketplace (required for USD→ETH price conversion)
   const setOracleTx = await marketplace.setOracle(oracleAddress);
@@ -44,8 +44,8 @@ async function main() {
     } catch (e) { console.log("NFTMarketplace verification:", e.message); }
     try {
       await hre.run("verify:verify", { address: oracleAddress, constructorArguments: [] });
-      console.log("SimpleOracle verified");
-    } catch (e) { console.log("SimpleOracle verification:", e.message); }
+      console.log("PriceOracle verified");
+    } catch (e) { console.log("PriceOracle verification:", e.message); }
   }
 
   // Write addresses to a JSON file for the frontend
@@ -67,7 +67,7 @@ async function main() {
   const logEntry = `[${addresses.timestamp}] ${hre.network.name} (chainId: ${addresses.chainId})\n` +
     `  NFTCollection: ${nftAddress}\n` +
     `  NFTMarketplace: ${marketplaceAddress}\n` +
-    `  SimpleOracle: ${oracleAddress}\n` +
+    `  PriceOracle: ${oracleAddress}\n` +
     `  Deployer: ${deployer.address}\n\n`;
   fs.appendFileSync(historyPath, logEntry);
   console.log("Deployment logged to deployments.log");
@@ -96,9 +96,9 @@ async function main() {
     JSON.stringify(mktArtifact.abi, null, 2)
   );
 
-  const oracleArtifact = await hre.artifacts.readArtifact("SimpleOracle");
+  const oracleArtifact = await hre.artifacts.readArtifact("PriceOracle");
   fs.writeFileSync(
-    path.join(abiDir, "SimpleOracle.json"),
+    path.join(abiDir, "PriceOracle.json"),
     JSON.stringify(oracleArtifact.abi, null, 2)
   );
   console.log("ABIs written to frontend/src/config/abis/");

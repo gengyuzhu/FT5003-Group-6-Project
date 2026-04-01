@@ -16,11 +16,28 @@ interface ISimpleOracle {
 }
 
 /**
+ * @title IERC4907
+ * @notice Interface for ERC-4907 rental NFTs (time-limited user role).
+ */
+interface IERC4907Marketplace {
+    function setUser(uint256 tokenId, address user, uint64 expires) external;
+}
+
+/**
+ * @title INFTCollaborative
+ * @notice Interface for collaborative NFT royalty distribution.
+ */
+interface INFTCollaborative {
+    function isCollaborative(uint256 tokenId) external view returns (bool);
+    function distributeRoyalty(uint256 tokenId) external payable;
+}
+
+/**
  * @title NFTMarketplace
- * @notice Decentralized NFT marketplace supporting USD-denominated fixed-price listings
- *         (with oracle-based ETH conversion at purchase time) and English auctions
- *         with ERC-2981 royalty enforcement, a platform fee, pull-payment fund
- *         distribution, listing expiration, and minimum bid increments.
+ * @notice Decentralized NFT marketplace with 8 sale mechanisms (vs OpenSea's 2):
+ *         fixed-price, English auction, Dutch auction, on-chain offers, P2P swaps,
+ *         batch listing, NFT rental (ERC-4907), and collaborative NFT support.
+ *         Includes an on-chain reputation system for buyer/seller accountability.
  *
  *         Designed for traditional artists: sellers list in USD for price stability,
  *         buyers pay in ETH, and the oracle provides the real-time conversion rate.
@@ -60,6 +77,12 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
     error SwapNotActive();
     error NotCounterparty();
     error SwapExpired();
+    error RentalListingNotActive();
+    error RentalDurationInvalid();
+    error AlreadyRated();
+    error InvalidRating();
+    error NotTxParticipant();
+    error TxNotFound();
 
     // ── Events (oracle)
     event OracleUpdated(address indexed newOracle);
@@ -74,6 +97,11 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
     event SwapProposed(uint256 indexed swapId, address indexed proposer, address indexed counterparty);
     event SwapExecuted(uint256 indexed swapId);
     event SwapCancelled(uint256 indexed swapId);
+    event RentalListed(uint256 indexed rentalId, address indexed owner, address nftContract, uint256 tokenId, uint256 dailyPriceUsdCents, uint256 maxDays);
+    event NFTRented(uint256 indexed rentalId, address indexed renter, uint256 days_, uint256 paidWei);
+    event RentalCancelled(uint256 indexed rentalId);
+    event TransactionCompleted(uint256 indexed txId, address buyer, address seller, uint8 txType);
+    event TransactionRated(uint256 indexed txId, address indexed rater, uint8 score);
 
     // ── Types ───────────────────────────────────────────────────────────
 
@@ -129,6 +157,26 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
         bool active;
     }
 
+    struct RentalListing {
+        address owner;
+        address nftContract;
+        uint256 tokenId;
+        uint256 dailyPriceUsdCents;   // USD cents per day
+        uint256 maxDays;              // Maximum rental duration in days
+        bool active;
+    }
+
+    // ── Reputation System ──────────────────────────────────────────────
+
+    struct CompletedTx {
+        address buyer;
+        address seller;
+        address nftContract;
+        uint256 tokenId;
+        uint8 txType;          // 0=fixed, 1=auction, 2=dutch, 3=offer, 4=swap, 5=rental
+        uint256 timestamp;
+    }
+
     // ── State ───────────────────────────────────────────────────────────
 
     ISimpleOracle public oracle;
@@ -148,12 +196,21 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
     uint256 private _nextDutchAuctionId;
     uint256 private _nextOfferId;
     uint256 private _nextSwapId;
+    uint256 private _nextRentalListingId;
+    uint256 private _nextCompletedTxId;
 
     mapping(uint256 => Listing)  public listings;
     mapping(uint256 => Auction)  public auctions;
     mapping(uint256 => DutchAuction) public dutchAuctions;
     mapping(uint256 => Offer)    public offers;
     mapping(uint256 => Swap)     public swaps;
+    mapping(uint256 => RentalListing) public rentalListings;
+
+    // Reputation system
+    mapping(uint256 => CompletedTx) public completedTxs;
+    mapping(uint256 => mapping(address => uint8)) public txRatings; // txId => rater => score (1-5)
+    mapping(address => uint256) public reputationScore;  // cumulative score
+    mapping(address => uint256) public ratingCount;      // number of ratings received
 
     // Pending withdrawals (pull-payment for all fund distributions)
     mapping(address => uint256)  public pendingWithdrawals;
@@ -296,6 +353,7 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
             listing.tokenId
         );
 
+        _recordTx(msg.sender, listing.seller, listing.nftContract, listing.tokenId, 0);
         emit Sold(listingId, msg.sender, requiredWei);
     }
 
@@ -432,6 +490,7 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
                 auction.tokenId
             );
 
+            _recordTx(auction.highestBidder, auction.seller, auction.nftContract, auction.tokenId, 1);
             emit AuctionEnded(auctionId, auction.highestBidder, auction.highestBid);
         } else {
             // No bids — return NFT to seller
@@ -538,11 +597,12 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
         }
 
         IERC721(da.nftContract).safeTransferFrom(address(this), msg.sender, da.tokenId);
+        _recordTx(msg.sender, da.seller, da.nftContract, da.tokenId, 2);
         emit DutchAuctionSold(auctionId, msg.sender, currentPriceUsd, requiredWei);
     }
 
     /// @notice Cancel a Dutch auction and reclaim escrowed NFT (seller only, unsold only).
-    function cancelDutchAuction(uint256 auctionId) external {
+    function cancelDutchAuction(uint256 auctionId) external nonReentrant {
         DutchAuction storage da = dutchAuctions[auctionId];
         if (da.sold) revert DutchAuctionEnded();
         if (da.seller != msg.sender) revert NotTheSeller();
@@ -620,6 +680,7 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
         _distributeFunds(offer.nftContract, offer.tokenId, msg.sender, offer.amount);
 
         nft.safeTransferFrom(msg.sender, offer.buyer, offer.tokenId);
+        _recordTx(offer.buyer, msg.sender, offer.nftContract, offer.tokenId, 3);
         emit OfferAccepted(offerId, msg.sender);
     }
 
@@ -726,11 +787,12 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
             swap.counterparty, swap.proposer, swap.counterpartyTokenId
         );
 
+        _recordTx(swap.counterparty, swap.proposer, swap.proposerNftContract, swap.proposerTokenId, 4);
         emit SwapExecuted(swapId);
     }
 
     /// @notice Cancel a swap proposal and reclaim escrowed NFT + ETH (proposer only).
-    function cancelSwap(uint256 swapId) external {
+    function cancelSwap(uint256 swapId) external nonReentrant {
         Swap storage swap = swaps[swapId];
         if (!swap.active) revert SwapNotActive();
         if (swap.proposer != msg.sender) revert NotTheSeller();
@@ -748,6 +810,125 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
         }
 
         emit SwapCancelled(swapId);
+    }
+
+    // ── NFT Rental (ERC-4907, USD per day, no escrow) ───────────────────
+
+    /**
+     * @notice List an NFT for rent. The NFT stays in the owner's wallet (no escrow).
+     *         Price is in USD cents per day, converted via oracle at rental time.
+     *         Uses ERC-4907 setUser() — the renter gets usage rights, owner keeps ownership.
+     *         OpenSea does not support NFT rentals at all.
+     */
+    function listForRent(
+        address nftContract,
+        uint256 tokenId,
+        uint256 dailyPriceUsdCents,
+        uint256 maxDays
+    ) external whenNotPaused returns (uint256) {
+        if (dailyPriceUsdCents == 0) revert PriceZero();
+        if (maxDays == 0) revert RentalDurationInvalid();
+
+        IERC721 nft = IERC721(nftContract);
+        if (nft.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
+        if (
+            nft.getApproved(tokenId) != address(this) &&
+            !nft.isApprovedForAll(msg.sender, address(this))
+        ) revert MarketplaceNotApproved();
+
+        uint256 rentalId = _nextRentalListingId++;
+        rentalListings[rentalId] = RentalListing({
+            owner: msg.sender,
+            nftContract: nftContract,
+            tokenId: tokenId,
+            dailyPriceUsdCents: dailyPriceUsdCents,
+            maxDays: maxDays,
+            active: true
+        });
+
+        emit RentalListed(rentalId, msg.sender, nftContract, tokenId, dailyPriceUsdCents, maxDays);
+        return rentalId;
+    }
+
+    /**
+     * @notice Rent an NFT for a specified number of days.
+     *         Renter pays totalPrice = dailyPrice * days (USD, converted via oracle).
+     *         Marketplace calls ERC-4907 setUser() on the NFT contract to grant usage rights.
+     *         Funds distributed via pull-payment (platform fee + royalty + owner proceeds).
+     */
+    function rentNFT(uint256 rentalId, uint256 days_) external payable nonReentrant whenNotPaused {
+        RentalListing storage rental = rentalListings[rentalId];
+        if (!rental.active) revert RentalListingNotActive();
+        if (days_ == 0 || days_ > rental.maxDays) revert RentalDurationInvalid();
+        if (msg.sender == rental.owner) revert SellerCannotBuy();
+
+        uint256 totalPriceUsd = rental.dailyPriceUsdCents * days_;
+        uint256 requiredWei = _getRequiredWei(totalPriceUsd);
+        if (msg.value < requiredWei) revert InsufficientPayment();
+
+        uint256 maxWei = requiredWei + (requiredWei * SLIPPAGE_BPS) / BPS_DENOMINATOR;
+        if (msg.value > maxWei) revert ExcessivePayment();
+
+        // Set user role via ERC-4907 (marketplace is approved, so this works)
+        uint64 expires = uint64(block.timestamp + days_ * 1 days);
+        IERC4907Marketplace(rental.nftContract).setUser(rental.tokenId, msg.sender, expires);
+
+        // Distribute funds
+        _distributeFunds(rental.nftContract, rental.tokenId, rental.owner, requiredWei);
+
+        uint256 refund = msg.value - requiredWei;
+        if (refund > 0) {
+            pendingWithdrawals[msg.sender] += refund;
+        }
+
+        // Record completed transaction for reputation system
+        _recordTx(msg.sender, rental.owner, rental.nftContract, rental.tokenId, 5);
+
+        emit NFTRented(rentalId, msg.sender, days_, requiredWei);
+    }
+
+    /// @notice Cancel a rental listing (owner only).
+    function cancelRentalListing(uint256 rentalId) external {
+        RentalListing storage rental = rentalListings[rentalId];
+        if (!rental.active) revert RentalListingNotActive();
+        if (rental.owner != msg.sender) revert NotTheSeller();
+
+        rental.active = false;
+        emit RentalCancelled(rentalId);
+    }
+
+    // ── On-Chain Reputation System ──────────────────────────────────────
+
+    /**
+     * @notice Rate a completed transaction. Both buyer and seller can rate once
+     *         per transaction (score 1–5). Ratings are permanent and immutable.
+     *         Solves the "rug pull seller" problem that OpenSea cannot address.
+     * @param txId   The completed transaction ID.
+     * @param score  Rating from 1 (terrible) to 5 (excellent).
+     */
+    function rateTransaction(uint256 txId, uint8 score) external {
+        if (txId >= _nextCompletedTxId) revert TxNotFound();
+        if (score < 1 || score > 5) revert InvalidRating();
+
+        CompletedTx storage ctx = completedTxs[txId];
+        if (msg.sender != ctx.buyer && msg.sender != ctx.seller) revert NotTxParticipant();
+        if (txRatings[txId][msg.sender] != 0) revert AlreadyRated();
+
+        txRatings[txId][msg.sender] = score;
+
+        // Credit the counterparty's reputation
+        address counterparty = msg.sender == ctx.buyer ? ctx.seller : ctx.buyer;
+        reputationScore[counterparty] += score;
+        ratingCount[counterparty]++;
+
+        emit TransactionRated(txId, msg.sender, score);
+    }
+
+    /// @notice Get a user's average reputation (scaled by 100 for precision).
+    function getReputation(address user) external view returns (uint256 avgScore100, uint256 totalRatings) {
+        totalRatings = ratingCount[user];
+        if (totalRatings == 0) return (0, 0);
+        avgScore100 = (reputationScore[user] * 100) / totalRatings;
     }
 
     // ── Withdraw (pull-payment for all fund distributions) ───────────────
@@ -798,6 +979,22 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
     }
 
     // ── Internals ───────────────────────────────────────────────────────
+
+    /**
+     * @dev Record a completed transaction for the reputation system.
+     */
+    function _recordTx(address buyer, address seller, address nftContract, uint256 tokenId, uint8 txType) internal {
+        uint256 txId = _nextCompletedTxId++;
+        completedTxs[txId] = CompletedTx({
+            buyer: buyer,
+            seller: seller,
+            nftContract: nftContract,
+            tokenId: tokenId,
+            txType: txType,
+            timestamp: block.timestamp
+        });
+        emit TransactionCompleted(txId, buyer, seller, txType);
+    }
 
     /**
      * @dev Internal listing creation used by both listNFT and batchListNFT.
@@ -888,7 +1085,16 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
             pendingWithdrawals[owner()] += platformFee;
         }
         if (royaltyAmount > 0 && royaltyReceiver != address(0)) {
-            pendingWithdrawals[royaltyReceiver] += royaltyAmount;
+            // For collaborative NFTs, distribute royalty directly to creators
+            try INFTCollaborative(nftContract).isCollaborative(tokenId) returns (bool isCollab) {
+                if (isCollab) {
+                    INFTCollaborative(nftContract).distributeRoyalty{value: royaltyAmount}(tokenId);
+                } else {
+                    pendingWithdrawals[royaltyReceiver] += royaltyAmount;
+                }
+            } catch {
+                pendingWithdrawals[royaltyReceiver] += royaltyAmount;
+            }
         }
         if (sellerProceeds > 0) {
             pendingWithdrawals[seller] += sellerProceeds;
@@ -948,5 +1154,15 @@ contract NFTMarketplace is Ownable, ReentrancyGuard, Pausable {
     /// @notice Return the total number of swaps ever proposed.
     function getSwapCount() external view returns (uint256) {
         return _nextSwapId;
+    }
+
+    /// @notice Return the total number of rental listings ever created.
+    function getRentalListingCount() external view returns (uint256) {
+        return _nextRentalListingId;
+    }
+
+    /// @notice Return the total number of completed transactions (for reputation).
+    function getCompletedTxCount() external view returns (uint256) {
+        return _nextCompletedTxId;
     }
 }

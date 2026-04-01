@@ -18,6 +18,8 @@ describe("NFTMarketplace", function () {
     return (BigInt(priceUsdCents) * 10n ** 24n + BigInt(oraclePrice) - 1n) / BigInt(oraclePrice);
   }
 
+  const STAKE_AMOUNT = ethers.parseEther("0.05"); // MIN_STAKE
+
   /**
    * Submit a fresh oracle round (3 reporters submit the same price → median = price).
    * Can be called multiple times; each call finalizes a new round.
@@ -37,14 +39,19 @@ describe("NFTMarketplace", function () {
     const NFTMarketplace = await ethers.getContractFactory("NFTMarketplace");
     marketplace = await NFTMarketplace.deploy();
 
-    // Deploy and configure oracle
-    const SimpleOracle = await ethers.getContractFactory("SimpleOracle");
-    oracle = await SimpleOracle.deploy();
+    // Deploy and configure oracle (PriceOracle with staking)
+    const PriceOracle = await ethers.getContractFactory("PriceOracle");
+    oracle = await PriceOracle.deploy();
 
     // Add 3 reporters (MIN_REPORTERS = 3)
     await oracle.addReporter(owner.address);
     await oracle.addReporter(alice.address);
     await oracle.addReporter(bob.address);
+
+    // Reporters must stake >= 0.05 ETH to submit prices
+    await oracle.connect(owner).stake({ value: STAKE_AMOUNT });
+    await oracle.connect(alice).stake({ value: STAKE_AMOUNT });
+    await oracle.connect(bob).stake({ value: STAKE_AMOUNT });
 
     // Seed initial price: $2091.00 → PRICE_USD ($2091.00 in cents) = exactly 1 ETH
     await seedOraclePrice();
@@ -812,11 +819,14 @@ describe("NFTMarketplace", function () {
     // -- Oracle edge cases --
     it("should revert when oracle price is zero", async () => {
       // Deploy fresh oracle with no deviation check issue by starting fresh
-      const SimpleOracle2 = await ethers.getContractFactory("SimpleOracle");
-      const oracle2 = await SimpleOracle2.deploy();
+      const PriceOracle2 = await ethers.getContractFactory("PriceOracle");
+      const oracle2 = await PriceOracle2.deploy();
       await oracle2.addReporter(owner.address);
       await oracle2.addReporter(alice.address);
       await oracle2.addReporter(bob.address);
+      await oracle2.connect(owner).stake({ value: STAKE_AMOUNT });
+      await oracle2.connect(alice).stake({ value: STAKE_AMOUNT });
+      await oracle2.connect(bob).stake({ value: STAKE_AMOUNT });
       // Submit price 0 (all reporters) - this will be the first round, no deviation check
       await oracle2.connect(owner).submitPrice(0);
       await oracle2.connect(alice).submitPrice(0);
@@ -835,7 +845,7 @@ describe("NFTMarketplace", function () {
       ).to.be.revertedWithCustomError(mkt2, "OracleNotSet");
     });
 
-    // -- SimpleOracle --
+    // -- PriceOracle --
     it("oracle price deviation check rejects extreme prices", async () => {
       // Current price is $2091, try submitting $100 (>50% deviation)
       await expect(
@@ -1372,7 +1382,7 @@ describe("NFTMarketplace", function () {
 
     it("getVolatility returns 0 with fewer than 2 samples", async () => {
       // Deploy fresh oracle with only 1 round
-      const Fresh = await ethers.getContractFactory("SimpleOracle");
+      const Fresh = await ethers.getContractFactory("PriceOracle");
       const fresh = await Fresh.deploy();
       const [vol, count] = await fresh.getVolatility();
       expect(vol).to.equal(0);
@@ -1415,7 +1425,7 @@ describe("NFTMarketplace", function () {
     });
 
     it("TWAP reverts with no price history", async () => {
-      const Fresh = await ethers.getContractFactory("SimpleOracle");
+      const Fresh = await ethers.getContractFactory("PriceOracle");
       const fresh = await Fresh.deploy();
       await expect(fresh.getTWAP()).to.be.revertedWithCustomError(fresh, "NoPrice");
     });
@@ -1617,6 +1627,214 @@ describe("NFTMarketplace", function () {
       await expect(
         marketplace.connect(bob).acceptSwap(0)
       ).to.be.revertedWithCustomError(marketplace, "SwapNotActive");
+    });
+  });
+
+  // ── NFT Rental (ERC-4907) ──────────────────────────────────────────
+
+  describe("NFT Rental (ERC-4907)", () => {
+    beforeEach(async () => {
+      // Alice mints a fresh NFT for rental testing
+      const tx = await nft.connect(alice).mintNFT(alice.address, "ipfs://rental", ROYALTY_FEE);
+      const receipt = await tx.wait();
+      // Use setApprovalForAll for easier testing
+      await nft.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+    });
+
+    it("should list an NFT for rent", async () => {
+      const dailyPrice = 1000; // $10/day
+      const maxDays = 30;
+      const tokenId = 2; // 2nd token (1st minted in main beforeEach)
+
+      const tx = await marketplace.connect(alice).listForRent(
+        await nft.getAddress(), tokenId, dailyPrice, maxDays
+      );
+      await expect(tx).to.emit(marketplace, "RentalListed");
+
+      const rental = await marketplace.rentalListings(0);
+      expect(rental.owner).to.equal(alice.address);
+      expect(rental.dailyPriceUsdCents).to.equal(dailyPrice);
+      expect(rental.maxDays).to.equal(maxDays);
+      expect(rental.active).to.be.true;
+    });
+
+    it("should allow renting an NFT", async () => {
+      const tokenId = 2;
+      await marketplace.connect(alice).listForRent(
+        await nft.getAddress(), tokenId, 1000, 30
+      );
+
+      // Bob rents for 5 days at $10/day = $50 total
+      const requiredWei = expectedWei(5000); // $50
+      const maxWei = requiredWei + (requiredWei * 200n) / 10000n;
+
+      await expect(
+        marketplace.connect(bob).rentNFT(0, 5, { value: maxWei })
+      ).to.emit(marketplace, "NFTRented");
+
+      // Bob should be the "user" of the NFT
+      expect(await nft.userOf(tokenId)).to.equal(bob.address);
+      // Alice still owns the NFT
+      expect(await nft.ownerOf(tokenId)).to.equal(alice.address);
+    });
+
+    it("should reject renting exceeding maxDays", async () => {
+      const tokenId = 2;
+      await marketplace.connect(alice).listForRent(
+        await nft.getAddress(), tokenId, 1000, 7
+      );
+
+      await expect(
+        marketplace.connect(bob).rentNFT(0, 10, { value: ethers.parseEther("10") })
+      ).to.be.revertedWithCustomError(marketplace, "RentalDurationInvalid");
+    });
+
+    it("should reject renting with zero days", async () => {
+      const tokenId = 2;
+      await marketplace.connect(alice).listForRent(
+        await nft.getAddress(), tokenId, 1000, 30
+      );
+
+      await expect(
+        marketplace.connect(bob).rentNFT(0, 0, { value: ethers.parseEther("1") })
+      ).to.be.revertedWithCustomError(marketplace, "RentalDurationInvalid");
+    });
+
+    it("should allow cancelling a rental listing", async () => {
+      const tokenId = 2;
+      await marketplace.connect(alice).listForRent(
+        await nft.getAddress(), tokenId, 1000, 30
+      );
+
+      await expect(marketplace.connect(alice).cancelRentalListing(0))
+        .to.emit(marketplace, "RentalCancelled");
+
+      expect((await marketplace.rentalListings(0)).active).to.be.false;
+    });
+
+    it("should reject cancel from non-owner", async () => {
+      const tokenId = 2;
+      await marketplace.connect(alice).listForRent(
+        await nft.getAddress(), tokenId, 1000, 30
+      );
+
+      await expect(
+        marketplace.connect(bob).cancelRentalListing(0)
+      ).to.be.revertedWithCustomError(marketplace, "NotTheSeller");
+    });
+
+    it("getRentalListingCount returns correct value", async () => {
+      expect(await marketplace.getRentalListingCount()).to.equal(0);
+      const tokenId = 2;
+      await marketplace.connect(alice).listForRent(
+        await nft.getAddress(), tokenId, 1000, 30
+      );
+      expect(await marketplace.getRentalListingCount()).to.equal(1);
+    });
+  });
+
+  // ── On-Chain Reputation System ──────────────────────────────────────
+
+  describe("On-Chain Reputation System", () => {
+    it("should record completed transaction on sale", async () => {
+      // List and buy an NFT
+      await marketplace.connect(alice).listNFT(await nft.getAddress(), 1, PRICE_USD, 0);
+
+      const requiredWei = expectedWei(PRICE_USD);
+      const maxWei = requiredWei + (requiredWei * 200n) / 10000n;
+
+      await expect(
+        marketplace.connect(bob).buyNFT(0, { value: maxWei })
+      ).to.emit(marketplace, "TransactionCompleted");
+
+      const ctx = await marketplace.completedTxs(0);
+      expect(ctx.buyer).to.equal(bob.address);
+      expect(ctx.seller).to.equal(alice.address);
+      expect(ctx.txType).to.equal(0); // fixed-price
+    });
+
+    it("buyer can rate seller after purchase", async () => {
+      await marketplace.connect(alice).listNFT(await nft.getAddress(), 1, PRICE_USD, 0);
+      const requiredWei = expectedWei(PRICE_USD);
+      const maxWei = requiredWei + (requiredWei * 200n) / 10000n;
+      await marketplace.connect(bob).buyNFT(0, { value: maxWei });
+
+      await expect(marketplace.connect(bob).rateTransaction(0, 5))
+        .to.emit(marketplace, "TransactionRated")
+        .withArgs(0, bob.address, 5);
+
+      // Check alice's reputation
+      const [avgScore, totalRatings] = await marketplace.getReputation(alice.address);
+      expect(avgScore).to.equal(500); // 5.00 * 100
+      expect(totalRatings).to.equal(1);
+    });
+
+    it("seller can rate buyer after purchase", async () => {
+      await marketplace.connect(alice).listNFT(await nft.getAddress(), 1, PRICE_USD, 0);
+      const requiredWei = expectedWei(PRICE_USD);
+      const maxWei = requiredWei + (requiredWei * 200n) / 10000n;
+      await marketplace.connect(bob).buyNFT(0, { value: maxWei });
+
+      await marketplace.connect(alice).rateTransaction(0, 4);
+
+      const [avgScore, totalRatings] = await marketplace.getReputation(bob.address);
+      expect(avgScore).to.equal(400); // 4.00 * 100
+      expect(totalRatings).to.equal(1);
+    });
+
+    it("should reject double rating", async () => {
+      await marketplace.connect(alice).listNFT(await nft.getAddress(), 1, PRICE_USD, 0);
+      const requiredWei = expectedWei(PRICE_USD);
+      const maxWei = requiredWei + (requiredWei * 200n) / 10000n;
+      await marketplace.connect(bob).buyNFT(0, { value: maxWei });
+
+      await marketplace.connect(bob).rateTransaction(0, 5);
+      await expect(
+        marketplace.connect(bob).rateTransaction(0, 4)
+      ).to.be.revertedWithCustomError(marketplace, "AlreadyRated");
+    });
+
+    it("should reject invalid rating score", async () => {
+      await marketplace.connect(alice).listNFT(await nft.getAddress(), 1, PRICE_USD, 0);
+      const requiredWei = expectedWei(PRICE_USD);
+      const maxWei = requiredWei + (requiredWei * 200n) / 10000n;
+      await marketplace.connect(bob).buyNFT(0, { value: maxWei });
+
+      await expect(
+        marketplace.connect(bob).rateTransaction(0, 0)
+      ).to.be.revertedWithCustomError(marketplace, "InvalidRating");
+
+      await expect(
+        marketplace.connect(bob).rateTransaction(0, 6)
+      ).to.be.revertedWithCustomError(marketplace, "InvalidRating");
+    });
+
+    it("should reject rating from non-participant", async () => {
+      await marketplace.connect(alice).listNFT(await nft.getAddress(), 1, PRICE_USD, 0);
+      const requiredWei = expectedWei(PRICE_USD);
+      const maxWei = requiredWei + (requiredWei * 200n) / 10000n;
+      await marketplace.connect(bob).buyNFT(0, { value: maxWei });
+
+      await expect(
+        marketplace.connect(charlie).rateTransaction(0, 5)
+      ).to.be.revertedWithCustomError(marketplace, "NotTxParticipant");
+    });
+
+    it("should reject rating non-existent transaction", async () => {
+      await expect(
+        marketplace.connect(alice).rateTransaction(999, 5)
+      ).to.be.revertedWithCustomError(marketplace, "TxNotFound");
+    });
+
+    it("getCompletedTxCount tracks correctly", async () => {
+      expect(await marketplace.getCompletedTxCount()).to.equal(0);
+
+      await marketplace.connect(alice).listNFT(await nft.getAddress(), 1, PRICE_USD, 0);
+      const requiredWei = expectedWei(PRICE_USD);
+      const maxWei = requiredWei + (requiredWei * 200n) / 10000n;
+      await marketplace.connect(bob).buyNFT(0, { value: maxWei });
+
+      expect(await marketplace.getCompletedTxCount()).to.equal(1);
     });
   });
 });

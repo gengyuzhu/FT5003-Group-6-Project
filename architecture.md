@@ -27,16 +27,18 @@ The NFT Marketplace is a decentralized application (dApp) that enables users to 
 │    Ethereum Network          │     │     IPFS (Pinata)        │
 │  ┌─────────────────────────┐ │     │                          │
 │  │  NFTCollection.sol      │ │     │  - NFT images            │
-│  │  (ERC-721 + ERC-2981)   │ │     │  - JSON metadata         │
-│  └─────────────────────────┘ │     │                          │
-│  ┌─────────────────────────┐ │     └──────────────────────────┘
+│  │  (ERC-721 + ERC-2981    │ │     │  - JSON metadata         │
+│  │   ERC-4907 + Collab)    │ │     │                          │
+│  └─────────────────────────┘ │     └──────────────────────────┘
+│  ┌─────────────────────────┐ │
 │  │  NFTMarketplace.sol     │ │
-│  │  (Listings + Auctions   │ │
-│  │   Pausable + Pull-Pay)  │ │
+│  │  (8 Sale Mechanisms     │ │
+│  │   Rental + Reputation)  │ │
 │  └─────────────────────────┘ │
 │  ┌─────────────────────────┐ │
-│  │  SimpleOracle.sol       │ │
-│  │  (Multi-reporter Oracle)│ │
+│  │  PriceOracle.sol        │ │
+│  │  (Staking + Slashing    │ │
+│  │   Chainlink Compatible) │ │
 │  └─────────────────────────┘ │
 └──────────────────────────────┘
 ```
@@ -55,23 +57,35 @@ The NFT Marketplace is a decentralized application (dApp) that enables users to 
 │  ├─ ERC721         (core NFT standard)      │
 │  ├─ ERC721URIStorage (metadata URIs)        │
 │  ├─ ERC721Enumerable (token enumeration)    │
-│  └─ ERC2981        (royalty standard)       │
+│  ├─ ERC2981        (royalty standard)        │
+│  └─ IERC4907      (rental / user role)      │
 │─────────────────────────────────────────────│
 │ State:                                      │
 │  _nextTokenId : uint256                     │
 │  MAX_ROYALTY_FEE : 1000 (10%)               │
+│  _users : tokenId → UserInfo{user,expires}  │
+│  _collabInfo : tokenId → CollabInfo         │
+│  isCollaborative : tokenId → bool           │
+│  pendingCreatorPayments : address → uint256  │
 │─────────────────────────────────────────────│
 │ Functions:                                  │
 │  + mintNFT(to, uri, royaltyFee) → tokenId   │
+│  + collaborativeMint(to, uri, fee,          │
+│      creators[], sharesBps[]) → tokenId     │
+│  + distributeRoyalty(tokenId) payable        │
+│  + withdrawCreatorPayment()                 │
+│  + setUser(tokenId, user, expires)           │
+│  + userOf(tokenId) → address                │
+│  + userExpires(tokenId) → uint256           │
 │  + getCreator(tokenId) → address            │
-│  + tokenURI(tokenId) → string               │
-│  + totalSupply() → uint256                  │
-│  + supportsInterface(id) → bool             │
+│  + getCollabInfo(tokenId) → (addr[],uint[]) │
 └─────────────────────────────────────────────┘
 ```
 
 **Design Decisions:**
 - **ERC-2981 per-token royalties**: Each NFT stores its own royalty receiver (the creator) and fee. This ensures creators earn on every resale.
+- **ERC-4907 rental**: Adds a time-limited "user" role separate from "owner". The NFT never leaves the owner's wallet — usage rights expire automatically. On transfer, user info is cleared. OpenSea does not support this standard.
+- **Collaborative minting**: Multiple creators co-mint a single NFT with on-chain shares (BPS summing to 10000). Royalty receiver is set to the contract itself, and `distributeRoyalty()` splits incoming ETH proportionally. Uses pull-payment pattern for creator withdrawals.
 - **ERC721Enumerable**: Enables efficient on-chain querying of all tokens owned by a user — essential for the Profile page.
 - **Open minting**: Anyone can mint (no whitelist). This aligns with a permissionless marketplace ethos.
 - **10% max royalty cap**: Prevents abusive royalty fees that could deter buyers.
@@ -87,7 +101,7 @@ The NFT Marketplace is a decentralized application (dApp) that enables users to 
 │  ├─ ReentrancyGuard (security)                      │
 │  └─ Pausable        (emergency stop)                │
 │─────────────────────────────────────────────────────│
-│ Custom Errors (31):                                 │
+│ Custom Errors (37):                                 │
 │  PriceZero, NotTokenOwner, MarketplaceNotApproved,  │
 │  ListingNotActive, ListingExpiredError,              │
 │  InsufficientPayment, ExcessivePayment, OracleNotSet,│
@@ -99,15 +113,23 @@ The NFT Marketplace is a decentralized application (dApp) that enables users to 
 │  ArrayLengthMismatch, BatchTooLarge,                │
 │  EndPriceTooHigh, DutchAuctionEnded,                │
 │  OfferNotActive, OfferExpired,                      │
-│  SwapNotActive, NotCounterparty, SwapExpired         │
+│  SwapNotActive, NotCounterparty, SwapExpired,       │
+│  RentalListingNotActive, RentalDurationInvalid,     │
+│  AlreadyRated, InvalidRating, NotTxParticipant,     │
+│  TxNotFound                                         │
 │─────────────────────────────────────────────────────│
 │ State:                                              │
-│  oracle      : ISimpleOracle (price feed)           │
+│  oracle      : ISimpleOracle (PriceOracle feed)      │
 │  listings    : mapping(uint256 → Listing)           │
 │  auctions    : mapping(uint256 → Auction)           │
 │  dutchAuctions : mapping(uint256 → DutchAuction)   │
 │  offers      : mapping(uint256 → Offer)             │
 │  swaps       : mapping(uint256 → Swap)              │
+│  rentalListings : mapping(uint256 → RentalListing)  │
+│  completedTxs : mapping(uint256 → CompletedTx)     │
+│  txRatings   : txId → rater → score (1-5)          │
+│  reputationScore : address → uint256                │
+│  ratingCount : address → uint256                    │
 │  pendingWithdrawals : mapping(address → uint256)    │
 │  platformFeeBps : uint256 (default 250 = 2.5%)      │
 │  MIN_BID_INCREMENT_BPS : 500 (5%)                   │
@@ -193,6 +215,28 @@ The NFT Marketplace is a decentralized application (dApp) that enables users to 
 │    [emits SwapCancelled]                            │
 │  + getSwapCount() → uint256                         │
 │─────────────────────────────────────────────────────│
+│ NFT Rental Flow (ERC-4907):                         │
+│  + listForRent(nft, tokenId, dailyPriceUsd, maxDays)│
+│    [NFT stays in owner wallet; emits RentalListed]  │
+│  + rentNFT(rentalId, days) [payable]                │
+│    → calls setUser() on NFT contract (ERC-4907)     │
+│    → funds via _distributeFunds                     │
+│    [emits NFTRented; records CompletedTx]           │
+│  + cancelRentalListing(rentalId) [owner only]       │
+│    [emits RentalCancelled]                          │
+│  + getRentalListingCount() → uint256                │
+│─────────────────────────────────────────────────────│
+│ On-Chain Reputation System:                         │
+│  + rateTransaction(txId, score) [1-5, once each]    │
+│    → buyer rates seller, seller rates buyer         │
+│    → permanent, immutable on-chain ratings          │
+│    [emits TransactionRated]                         │
+│  + getReputation(user) → (avgScore100, totalRatings)│
+│  + getCompletedTxCount() → uint256                  │
+│  All sale types auto-record CompletedTx:            │
+│    0=fixed, 1=auction, 2=dutch, 3=offer,            │
+│    4=swap, 5=rental                                 │
+│─────────────────────────────────────────────────────│
 │ Internal:                                           │
 │  - _getRequiredWei(priceUsdCents) → uint256         │
 │     → reads oracle, converts USD cents to wei       │
@@ -202,6 +246,10 @@ The NFT Marketplace is a decentralized application (dApp) that enables users to 
 │     → accumulates into pendingWithdrawals:          │
 │       platformFee → owner, royalty → creator,       │
 │       remainder → seller (pull-payment pattern)     │
+│     → collaborative NFTs: royalty sent directly to  │
+│       NFTCollection.distributeRoyalty() for split    │
+│  - _recordTx(buyer, seller, nft, tokenId, txType)   │
+│     → creates CompletedTx for reputation system     │
 │─────────────────────────────────────────────────────│
 │ Admin:                                              │
 │  + setOracle(address) [onlyOwner, emits OracleUpdated]│
@@ -216,7 +264,10 @@ The NFT Marketplace is a decentralized application (dApp) that enables users to 
 - **Separation of NFT and Marketplace contracts**: Follows the single-responsibility principle. The NFT contract handles token logic; the marketplace handles trading.
 - **Full pull-payment pattern**: All fund distribution (platform fees, royalties, seller proceeds) goes to `pendingWithdrawals`. Recipients call `withdraw()` to claim. This prevents reentrancy, gas griefing, and "stuck auction" attacks.
 - **Pausable**: OpenZeppelin Pausable allows the contract owner to freeze all marketplace operations in an emergency.
-- **Custom errors**: 31 custom errors replace `require()` strings, saving ~200 gas per revert and enabling richer client-side error decoding. `ArrayLengthMismatch`/`BatchTooLarge` guard batch listing; `EndPriceTooHigh`/`DutchAuctionEnded` guard Dutch auctions; `OfferNotActive`/`OfferExpired` guard the offer system; `SwapNotActive`/`NotCounterparty`/`SwapExpired` guard P2P swaps. The oracle adds 6 additional errors including `RoundTooFrequent` for flash-loan protection.
+- **Custom errors**: 37 marketplace errors + 10 oracle errors replace `require()` strings, saving ~200 gas per revert and enabling richer client-side error decoding. Rental adds `RentalListingNotActive`/`RentalDurationInvalid`; reputation adds `AlreadyRated`/`InvalidRating`/`NotTxParticipant`/`TxNotFound`; the oracle adds `InsufficientStake`/`NoStakeToWithdraw`/`UnstakeDuringRound` for staking and `RoundTooFrequent` for flash-loan protection.
+- **ERC-4907 NFT rental**: The marketplace calls `setUser()` on the NFT contract to grant time-limited usage rights. The NFT never leaves the owner's wallet (no escrow). Price is USD per day converted via oracle. This is a feature OpenSea does not support at all.
+- **Collaborative NFT royalty distribution**: `_distributeFunds` detects collaborative NFTs via `INFTCollaborative.isCollaborative()` and sends royalty directly to the NFT contract's `distributeRoyalty()` function, which splits it among creators using pull-payment.
+- **On-chain reputation system**: Every completed transaction (across all 6 sale types) auto-records a `CompletedTx` entry with buyer, seller, NFT, and type. Both parties can rate (1–5) once per transaction. Ratings are permanent and immutable, stored on-chain. `getReputation()` returns average score (×100 for precision). This solves the "rug pull seller" problem that OpenSea cannot address.
 - **Dutch auction escrow**: NFT is escrowed in the marketplace on `createDutchAuction`, matching the English auction pattern. Price is computed linearly at buy time; no `ExcessivePayment` check is applied because declining-price mechanics mean overpaying is expected — the excess is refunded via pull-payment.
 - **On-chain offers**: ETH is locked in `pendingWithdrawals` on `makeOffer`, making funds fully transparent and slashing counterparty risk. Unlike OpenSea's off-chain Seaport orders, every offer is visible and verifiable on-chain. Multiple offers can exist simultaneously for the same NFT.
 - **P2P NFT swaps**: Atomic bartering mechanism where two parties exchange NFTs directly. The proposer's NFT is escrowed on proposal; an optional ETH top-up can compensate for value differences and is distributed via `_distributeFunds` (platform fee + royalty). The counterparty accepts to trigger an atomic swap of both NFTs. Proposer can cancel to reclaim their escrowed NFT and ETH. Swaps have configurable duration with `SwapExpired` protection.
@@ -254,80 +305,80 @@ msg.value checked: requiredWei ≤ msg.value ≤ requiredWei + 2%
 All recipients call withdraw() to claim their funds (pull-payment).
 ```
 
-### 2.4 SimpleOracle.sol
+### 2.4 PriceOracle.sol (Economic-Incentive Oracle)
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                   SimpleOracle                       │
+│                   PriceOracle                        │
+│         (ASTREA-inspired, Chainlink-compatible)      │
 │─────────────────────────────────────────────────────│
 │ Inherits:                                           │
 │  └─ Ownable         (admin controls)                │
 │─────────────────────────────────────────────────────│
-│ Custom Errors (6):                                  │
+│ Custom Errors (10):                                 │
 │  NotAuthorizedReporter, StalePrice,                 │
 │  AlreadySubmitted, NoPrice, PriceDeviationTooHigh,  │
-│  RoundTooFrequent                                   │
+│  RoundTooFrequent, InsufficientStake,               │
+│  NoStakeToWithdraw, UnstakeDuringRound,             │
+│  TransferFailed                                     │
+│─────────────────────────────────────────────────────│
+│ Staking & Slashing:                                 │
+│  reporterStakes   : mapping(address → uint256)      │
+│  slashedFundsPool : uint256                         │
+│  MIN_STAKE        : 0.05 ETH                        │
+│  SLASH_THRESHOLD  : 1000 BPS (10% deviation)        │
+│  SLASH_PENALTY    : 2000 BPS (20% of stake)         │
 │─────────────────────────────────────────────────────│
 │ State:                                              │
 │  reporters         : mapping(address → bool)        │
 │  currentRound      : uint256                        │
-│  latestPrice       : uint256                        │
-│  latestTimestamp    : uint256                        │
-│  priceHistory      : circular buffer (MAX_HISTORY)  │
+│  latestRound       : PriceRound{price,ts,count}     │
+│  priceHistory      : circular buffer (MAX=10)       │
 │  minRoundInterval  : uint256 (flash-loan guard)     │
-│  lastRoundTimestamp : uint256                        │
-│  MIN_REPORTERS     : 3                              │
-│  STALENESS_PERIOD  : 1 hour                         │
-│  MAX_HISTORY       : 10                             │
-│─────────────────────────────────────────────────────│
-│ State (additions):                                  │
 │  emergencyPriceActive : bool                        │
-│  reporterSubmissions  : mapping(address → uint256)  │
+│  reporterSubmissions : mapping(address → uint256)   │
 │─────────────────────────────────────────────────────│
-│ Functions:                                          │
-│  + addReporter(addr) [onlyOwner]                    │
-│  + removeReporter(addr) [onlyOwner]                 │
-│  + submitPrice(price) [onlyReporter]                │
-│    → increments reporterSubmissions[msg.sender]     │
-│    → finalizes round with median when MIN_REPORTERS │
-│    → normal round clears emergencyPriceActive       │
+│ Staking Functions:                                  │
+│  + stake() [payable, onlyReporter]                  │
+│    → MIN_STAKE required before submitting            │
+│  + unstake(amount) [no mid-round unstaking]          │
+│  + claimSlashedFunds() [onlyOwner]                  │
+│─────────────────────────────────────────────────────│
+│ Price Functions:                                    │
+│  + submitPrice(price) [staked reporters only]        │
+│    → checks stake ≥ MIN_STAKE                       │
+│    → on finalization: slash outliers >10% deviation  │
 │  + getLatestPrice() → (price, timestamp)            │
-│    → reverts if stale (>1h)                         │
-│  + getLatestPriceUnsafe() → (price, timestamp)      │
-│  + getPriceHistory() → PriceEntry[]                 │
-│    → returns all entries in the circular buffer     │
-│  + getPriceHistoryLength() → uint256                │
-│  + getVolatility() → uint256 (basis points)         │
-│    → (max - min) * 10000 / avg across price history │
-│  + hasSubmitted(reporter) → bool                    │
-│  + forceAdvanceRound() [onlyOwner, recovery]        │
-│  + getCurrentRoundSubmissions() → uint256           │
+│  + getLatestPriceUnsafe() → (price, ts, reporters)  │
+│  + getPriceHistory() → PriceRound[]                 │
+│  + getVolatility() → (bps, count)                   │
+│  + getTWAP() → (twapPrice, count)                   │
 │  + emergencySetPrice(price) [onlyOwner]             │
-│    → bypasses reporters; sets emergencyPriceActive  │
-│    [emits EmergencyPriceSet]                        │
-│  + getTWAP() → uint256                              │
-│    → time-weighted average from priceHistory buffer │
-│    → each price weighted by its duration            │
-│    → last entry weighted until block.timestamp      │
-│  + setMinRoundInterval(seconds) [onlyOwner]         │
-│    → 0 to disable; _finalizeRound checks interval   │
-│    → reverts RoundTooFrequent if too fast            │
+│  + setMinRoundInterval(seconds) [onlyOwner]          │
+│  + forceAdvanceRound() [onlyOwner]                  │
+│─────────────────────────────────────────────────────│
+│ Chainlink AggregatorV3 Interface:                   │
+│  + latestRoundData() → (roundId, answer,             │
+│      startedAt, updatedAt, answeredInRound)          │
+│  + decimals() → 8                                   │
+│  + description() → "ETH/USD"                        │
+│  + version() → 1                                    │
+│    → enables zero-code migration to Chainlink        │
 └─────────────────────────────────────────────────────┘
 ```
 
 **Design Decisions:**
+- **Economic-incentive staking (ASTREA-inspired)**: Reporters must stake ≥ 0.05 ETH before submitting prices. This creates skin-in-the-game — reporters who stake are incentivized to report honestly because their capital is at risk.
+- **Slashing mechanism**: After each round finalizes, every reporter's submission is checked against the median. If deviation exceeds 10% (SLASH_THRESHOLD_BPS = 1000), 20% of their stake is forfeited to the slashed funds pool. This makes lying economically irrational — the cost of being slashed exceeds any potential gain from price manipulation.
+- **Chainlink AggregatorV3 compatibility**: Implements `latestRoundData()`, `decimals()`, `description()`, and `version()` matching the Chainlink interface. Any system expecting a Chainlink feed can use this oracle with zero code changes, enabling seamless migration to production Chainlink in deployment.
 - **Median aggregation**: Uses the median of submitted prices rather than mean, making it resistant to outlier manipulation by a single bad reporter.
 - **Round-based**: Each reporter submits once per round; round finalizes when MIN_REPORTERS (3) have submitted.
 - **Staleness check**: `getLatestPrice()` reverts if no fresh price within 1 hour, preventing use of outdated data.
-- **Price deviation guard**: Submissions deviating more than 50% from the last finalized price are rejected, preventing flash manipulation.
-- **Authorized reporters**: Only owner-approved addresses can submit prices, preventing spam.
-- **Recovery mechanism**: `forceAdvanceRound()` allows the owner to unstick a round if reporters become unavailable.
-- **On-chain price history**: Each finalized round appends its median price and timestamp to a `priceHistory` circular buffer capped at `MAX_HISTORY = 10` entries. `getPriceHistory()` returns all stored entries and `getPriceHistoryLength()` returns the current count, giving buyers and sellers transparent access to recent price trends without relying on off-chain indexers.
-- **Emergency price override**: `emergencySetPrice(price)` allows the owner to instantly set a price without waiting for reporter consensus. The `emergencyPriceActive` flag tracks this state; a successful normal round clears the flag, restoring decentralized aggregation.
-- **Reporter submission tracking**: `reporterSubmissions` records how many rounds each reporter has participated in, providing an on-chain accountability audit trail.
-- **On-chain volatility**: `getVolatility()` computes price volatility from the stored history as `(max - min) * 10000 / avg`, returned in basis points. Useful for risk checks before listing or buying.
-- **TWAP (Time-Weighted Average Price)**: `getTWAP()` calculates a time-weighted average from the `priceHistory` circular buffer. Each price is weighted by its duration (time until the next price update); the last entry is weighted until `block.timestamp`. More manipulation-resistant than spot price because transient price spikes have minimal impact on the time-weighted average.
-- **Flash-loan attack prevention**: `minRoundInterval` is an owner-settable minimum interval between round finalizations. `setMinRoundInterval(seconds)` configures the guard (0 to disable). `_finalizeRound` checks the interval and reverts with `RoundTooFrequent` if rounds are finalized too rapidly, preventing same-block or rapid-fire price manipulation via flash loans.
+- **Price deviation guard**: Submissions deviating more than 50% from the last finalized price are rejected pre-submission, preventing flash manipulation.
+- **TWAP (Time-Weighted Average Price)**: More manipulation-resistant than spot price because transient price spikes have minimal impact on the time-weighted average.
+- **Flash-loan attack prevention**: `minRoundInterval` enforces cooldown between rounds, preventing same-block price manipulation.
+- **On-chain price history**: Circular buffer of last 10 finalized rounds for trend transparency.
+- **Emergency price override**: `emergencySetPrice()` allows the owner to set price when reporters are unavailable.
 
 ---
 
@@ -386,7 +437,7 @@ App
     ├── useListings (multicall for all on-chain listings + auctions)
     ├── useIPFS (IPFS upload)
     ├── useOracle (oracle simulation state + controls)
-    ├── useOracleContract (wagmi hooks for on-chain SimpleOracle)
+    ├── useOracleContract (wagmi hooks for on-chain PriceOracle)
     ├── Dutch auction hooks: useCreateDutchAuction, useBuyDutchAuction,
     │   useGetDutchAuctionPriceInWei, useCancelDutchAuction, useDutchAuctionCount
     └── Offer hooks: useMakeOffer, useAcceptOffer, useCancelOffer, useOfferCount
@@ -556,7 +607,7 @@ Seller        Frontend       Marketplace       Bidder
 | Emergency shutdown | Pausable: owner can freeze all operations |
 | Bid sniping | MIN_BID_INCREMENT_BPS = 500 (5% minimum increase); ANTI_SNIPE_DURATION extends auction by 5 min on late bids |
 | Stale listings | Optional expiration on listings, checked at buy time |
-| Oracle manipulation | Median aggregation + staleness checks + 50% deviation guard in SimpleOracle |
+| Oracle manipulation | Median aggregation + staleness checks + 50% deviation guard + staking/slashing in PriceOracle |
 | Oracle zero price | `_getRequiredWei` reverts if oracle returns price 0 |
 | Oracle zero address | `setOracle` reverts on zero address input |
 | Royalty to zero addr | `_distributeFunds` ignores royalty if receiver is address(0) |
@@ -650,7 +701,7 @@ Market (page)
 | Metadata Storage (IPFS) | | X |
 | Frontend Hosting | X | |
 | Price Feed (client-side ASTREA simulation) | | X |
-| Price Feed (on-chain SimpleOracle) | | X |
+| Price Feed (on-chain PriceOracle) | | X |
 | Market Analytics Data | X | |
 
 **Conclusion**: The application is **partially decentralized**. Core transactional logic lives on-chain, while the presentation layer and some data aggregation remain centralized. The Oracle demonstration shows how price feeds can transition from centralized to decentralized using ASTREA consensus.
